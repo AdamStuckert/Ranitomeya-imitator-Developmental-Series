@@ -1,0 +1,114 @@
+#!/bin/bash
+
+###################################################
+###Bash script for developmental series analysis###
+###################################################
+
+
+printf " ################################################ \n \
+############Concatenating reads now############# \n \
+################################################ \n"
+
+Cat *R1.fq > all_reads_R1.fastq &
+Cat *R2.fq > all_reads_R2.fastq
+
+wait
+
+printf " ################################################ \n \
+#############Subsampling reads now############## \n \
+################################################ \n"
+
+seqtk sample -s100 all_reads_R1.fastq 30000000 > subsamp.R1.fastq &
+seqtk sample -s100 all_reads_R2.fastq 30000000 > subsamp.R2.fastq
+
+wait
+
+printf " ################################################ \n \
+############### Initiating ORP ################# \n \
+################################################ \n"
+
+## probably need to edit the number of threads and overall memory...
+
+/home/summersk/programs/Oyster_River_Protocol/oyster35.mk main \
+MEM=1500 \
+CPU=24 \
+READ1=subsamp.R1.fastq \
+READ2=subsamp.R2.fastq \
+RUNOUT=subsamp
+
+# The transcriptome is in a different file, so move it and give it a somewhat more informative name
+cp assemblies/subsamp.orthomerged.fasta .
+mv subsamp.orthomerged.fasta devseries.subsampled.fasta
+
+printf " ################################################ \n \
+############# Dammit! Annotation ############### \n \
+################################################ \n"
+
+# Annotate the transcriptome using dammit
+# Move to a python3 environment
+. ~/py3/bin/activate
+
+# Now create the databases
+dammit databases --install --full
+
+# Then run the annotation
+dammit annotate devseries.subsampled.fasta --full --busco-group metazoa --n_threads 28
+
+# unzip all the files
+parallel -j 54 gunzip {} ::: *.fastq.gz
+
+printf " ################################################ \n \
+######### Trim and clean other reads ########### \n \
+################################################ \n"
+
+# Remove adaptors and trim the reads from each sample, first get the samples
+samples=$(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp)
+
+# Then run trimmomatic
+(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp) | \
+parallel -j 10 trimmomatic-0.36.jar PE -threads 4 \
+-baseout rcorr/{}_TRIM.fastq {}_R1.fastq {}_R2.fastq \
+LEADING:3 TRAILING:3 ILLUMINACLIP:barcodes.fa:2:30:10 MINLEN:25 
+
+# R corrector
+(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp) | \
+parallel -j 10 run_rcorrector.pl -t 10 -k 31 -1 rcorr/{}_TRIM_1P.fastq -2 rcorr/{}_TRIM_2P.fastq -od rcorr
+
+printf " ################################################ \n \
+######## Pseduo-quantify with Kallisto ######### \n \
+################################################ \n"
+
+# Pseudo-quantification with kallisto, build the index first
+kallisto index -i subsamp_devseries.idx devseries.subsampled.fasta
+
+# Make directories for each sample:
+mkdir kallisto_quants
+cd kallisto_quants
+for i in $samples; do mkdir $i; done
+cd ..
+
+# Perform the actual pseudo-quantification
+
+parallel -j 15 kallisto quant -i subsamp_devseries.idx -o kallisto_quants/{} -b 100 \
+{}.TRIM_1P.cor.fq {}.TRIM_2P.cor.fq ::: $samples
+
+printf " ################################################ \n \
+######## Diamond annotation to Xenopus ######### \n \
+################################################ \n"
+
+# Get the biomart gene tags
+#Annotate with diamond, which first requires building a blast database:
+diamond makedb --in Xenopus_tropicalis.JGI_4.2.pep.all.fa -d subsamp_devseries
+
+# And finally, create a blast table from it:
+diamond blastx -d subsamp_devseries -q devseries.subsampled.fasta -o subsamp_xeno.m8 --threads 16
+
+# This gives me the ensembl transcript id for each transcript in the transcriptome if there is one
+
+# Now, download all of this on to my computer using cyberduck like a pleb.
+	# This includes the kallisto quantifications as well as the annotation output file from diamond
+
+
+printf " ################################################ \n \
+########### You did it! Great work! ############ \n \
+################################################ \n"
