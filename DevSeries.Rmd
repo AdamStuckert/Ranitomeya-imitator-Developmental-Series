@@ -1,0 +1,883 @@
+---
+title: "DevSeries-Sleuth"
+author: "Adam Stuckert"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+#Background
+This uses the pseudo-quantifications from Kallisto to undergo differential expression analyses. These pseudo-quantification results should be in a folder entitled "kallisto_quants" within the R project folder
+
+
+```{r}
+library(rmarkdown)
+library(sleuth)
+
+# Sleuth sets #cores to 1 in Rstudio
+# Can change the available cores using:
+# options(mc.cores = 4L)
+
+setwd("C:/Users/Adam Stuckert/Documents/R/R projects/Developmental Series")
+#memory.size() #clearly insu-fucking-ficient 
+memory.limit(32000000)
+base_dir <- "C:/Users/Adam Stuckert/Documents/R/R projects/Developmental Series"
+sample_id <- dir(file.path(base_dir, "kallisto_quants"))
+#sample_id
+kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
+#kal_dirs
+samples <- read.table("devel-sleuth-full.txt", header = TRUE)
+samples <- samples[order(samples$sample),]
+#combine into a single combined factor
+group <- factor(paste(samples$locality,samples$week,sep="."))
+samples <- cbind(samples,group=group)
+samples
+
+```
+
+
+The above are all the samples in the dataset.
+
+```{r}
+samples <- dplyr::mutate(samples, path = kal_dirs)
+#print(samples)
+
+
+```
+
+
+
+Now I have the path to each sample in the samples dataframe, as well as the path to the quantifications. Time to run the actual analyses. Building the model takes some time...
+
+
+```{r}
+#First, prepare the model by building the design
+library(splines)
+week <- samples$week
+week <- as.numeric(week)
+spline_design <- model.matrix(formula( ~ ns(week, df = 3)))
+spline_design
+
+so <- sleuth_prep(samples, full_model = spline_design, num_cores = 6)
+```
+
+
+Plot the PCA to see how things fall out, and also make it very pretty. 
+
+
+```{r}
+plot_pca(so, point_size = 0.001) + geom_point() + aes(size = 3, colour = samples$locality, shape = factor(samples$week)) + scale_colour_manual(values = c("yellow1","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+ggsave("pca-subsamp-spline.pdf")
+ggsave("pca-subsamp-spline.tiff", width = 6.81, height = 3.99)
+```
+
+
+This is not quite as clear as the PCA was from EdgeR and a previously made transcriptome from adult skin. Oh well. Saved that for my presentation!
+
+
+That was just with the estimated counts, what about with tpm?
+
+```{r}
+plot_pca(so, units = "tpm", point_size = 0.001) + geom_point() + aes(size = 3, colour = samples$locality, shape = factor(samples$week)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+ggsave("pca-subsamp-spline-tpm.pdf")
+ggsave("pca-subsamp-spline-tpm.tiff", width = 6.81, height = 3.99)
+```
+
+Odd, one of the Sauce 8 week tadpoles seems to be a clear outlier...which one is that?
+
+```{r}
+plot_pca(so, units = "tpm", point_size = 0.001, text_labels = TRUE) #+ geom_point() + aes(size = 3, colour = samples$locality, shape = factor(samples$week)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+#ggsave("pca-subsamp-pop-tpm.pdf")
+#ggsave("pca-subsamp-pop-tpm.tiff", width = 6.81, height = 3.99)
+```
+
+Alright, so S2-8 is the clear outlier here. At the end of all of this, I might reanalyze this data without that particular sample. FOr now, what is driving this
+
+```{r}
+plot_loadings(so, pc_input = 1)
+# plot(so, 'Transcript_20603', color_by = 'genotype')
+ggsave("subsamp-spline-pc1-loadings.tiff", width = 6.81, height = 3.99)
+```
+
+OK, Transcript_20603 appears to be the most important loading.
+
+```{r}
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_20603')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+#tmp
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 20603") + geom_text(aes(label = sample))
+```
+
+None of the points look totally insane for this particular transcript, what about the other 4 ones in PC1?
+
+```{r}
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_4239')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+#tmp
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 4239") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_18891')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 18891") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_21012')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 21012") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_20776')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 20776") + geom_text(aes(label = sample))
+```
+
+None of those look horribly bad, but there is definitely no expression of some of those transcripts by the outlier (S2-8). Something possibly fishy...was it too old or something?
+
+Anyway, look at PC2, which should be population...
+
+
+```{r}
+plot_loadings(so, pc_input = 2)
+# plot(so, 'Transcript_20603', color_by = 'genotype')
+ggsave("subsamp-spline-pc2-loadings.tiff", width = 6.81, height = 3.99)
+
+```
+
+And plot the first 5 most important transcripts...
+
+```{r}
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_54457')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 54457") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_12719')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 12719") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_23795')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 23795") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_15760')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 15760") + geom_text(aes(label = sample))
+
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_4239')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Transcript 4239") + geom_text(aes(label = sample))
+```
+
+It is pretty clear that the outlier (S2-8) is waaaaay overexpressed in some of these transcripts relative to the other samples. So in saome senses it seems...peculiar, but I will leave it in for the data analyses (as if I could justify dropping it given our sample size).
+
+
+I will come back to these particular transcripts in a little bit. Now on to differential expression of the time series:
+
+```{r}
+# This is the model...
+# so <- sleuth_prep(samples, full_model = spline_design)
+
+so <- sleuth_fit(so, formula = spline_design, fit_name = "full")
+so <- sleuth_fit(so, formula = ~ 1, fit_name = "reduced")
+#so <- sleuth_fit(so, full_model = spline_design)
+models(so)
+so_lrt <- sleuth_lrt(so, "reduced", "full")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+lrt_results <- sleuth_results(so_lrt, 'reduced:full', test_type = 'lrt')
+table(lrt_results[,"qval"] < 0.05)
+sig_results <-  lrt_results[order(lrt_results$qval),]
+siggies <- sig_results[ which(sig_results$qval < 0.05),]
+```
+
+
+
+So there are 6,962 differentially expressed transcripts...which is a lot. I guess I should do Wald test, because this package doesn't support likelihood ratio tests.
+
+```{r}
+#plot_ma(so_wt, "ns(week, df = 3)3", test_type = 'wt')
+#plot_volcano(so_wt, "ns(week, df = 3)3", test_type = 'wt')
+#plot_transcript_heatmap(so, head(lrt_results, n = 20)$target_id, 'est_counts')
+```
+
+
+Get a kallisto abundance table...which I won't print since it is ~2 million rows but I can send either of you if you are interested.
+
+```{r}
+kal_table <- kallisto_table(so)
+```
+
+
+
+Now I will functionally do the same thing as I did using the 4 time points, but now by each population instead.
+
+
+```{r}
+# population
+# first prep the population matrix
+pop_design <- model.matrix(~0 + samples$locality)
+colnames(pop_design) <- levels(samples$locality)
+
+
+
+sopop <- sleuth_prep(samples, full_model = pop_design, num_cores = 6)
+
+sopop <- sleuth_fit(sopop, formula = pop_design, fit_name = "full")
+sopop <- sleuth_fit(sopop, formula = ~ 1, fit_name = "reduced")
+#so <- sleuth_fit(so, full_model = spline_design)
+models(sopop)
+sopop_lrt <- sleuth_lrt(sopop, "reduced", "full")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+pop_lrt_results <- sleuth_results(sopop_lrt, 'reduced:full', test_type = 'lrt')
+table(pop_lrt_results[,"qval"] < 0.05) #9701 significant transcripts between the null and the others...
+pop_sig_results <-  pop_lrt_results[order(pop_lrt_results$qval),]
+pop_siggies <- pop_sig_results[ which(pop_sig_results$qval < 0.05),]
+
+```
+
+Looks like there are 9,701 significant transcripts (q val < 0.05) between the populations here.
+
+Now I will make the same PCA I did above with the prepped data for the timeseries to see if there is a difference between the two. I don't think there should be though.
+
+```{r}
+plot_pca(sopop, units = "tpm", point_size = 0.001) + geom_point() + aes(size = 3, colour = samples$locality, shape = factor(samples$week)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+#ggsave("pca-subsamp-pop.pdf")
+#ggsave("pca-subsamp-pop.tiff", width = 6.81, height = 3.99)
+```
+
+Nope, this is the same. I'll double check to see if the principal components loadings are the same (I believe they should be).
+
+```{r}
+plot_loadings(sopop, pc_input = 1)
+plot_loadings(sopop, pc_input = 2)
+```
+
+Ok, good to know that I was right about that. 
+
+I think I should examine the important transcripts from the principal components loadings. I'll make figures with their q values now, to make this easier to see.
+
+```{r}
+pcs <- data.frame(transcripts = character(9), genes = character(9))
+pcs$transcripts <- c("Transcript_20603", "Transcript_4239", "Transcript_18891", "Transcript_21012", "Transcript_20776", "Transcript_54457", "Transcript_12719", "Transcript_23795", "Transcript_15760")
+
+pcs$genes <- c("cytochrome c oxidase subunit I (mitochondrion)", "collagen alpha-1(I) chain precursor", "biorientation of chromosomes in cell division protein 1", "collagen alpha-2(I) chain precursor", "collagen, type I, alpha 1 S homeolog precursor", "splicing factor 3a, subunit 1", "keratin 5, gene 5 L homeolog", "keratin-3, type I cytoskeletal 51 kDa", "keratin-3, type I cytoskeletal 51 kDa-like (predicted")
+
+
+#first make an empty dataframe
+pcs_genes_stats <- data.frame()
+
+for (i in 1:nrow(pcs)) {
+  t <- pcs[i,1]
+  g <- pcs[i,2]
+    # Now get the stats values for the transcript
+  tmp.gene = 
+  tmp.gene <- lrt_results %>% dplyr::filter(target_id == t)
+  tmp.gene <- cbind(g, tmp.gene)
+  pcs_genes_stats <- rbind(pcs_genes_stats, tmp.gene)
+  
+  
+}
+  
+colnames(pcs_genes_stats)[1] <- "gene"
+
+# For loop to make a plot for each of those genes/transcripts:
+
+for (i in 1:nrow(pcs_genes_stats)){
+  transcript <- pcs_genes_stats[i,2]
+  gene <- pcs_genes_stats[i,1]
+  qval <- pcs_genes_stats[i,5]
+  tmp <- so$obs_raw %>% dplyr::filter(target_id == transcript)
+  tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+  tmp
+  
+  tmp <- transform(tmp, week = as.numeric(week))
+a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +  geom_smooth(method = loess) + ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE)
+ 
+ print(a)
+ 
+  ggsave(paste0("pcloadings-figures/", gene, "-", transcript, "-spline.tiff"), width = 6.81, height = 3.99)
+}
+
+```
+
+
+I'm sorry, but what are you drinking dataset?! You say that these are the most important transcripts, but also that half of them are not significant? What?
+
+What if I make them with the population model data?
+
+```{r}
+#pcs <- data.frame(transcripts = character(9), genes = character(9))
+#pcs$transcripts <- c("Transcript_20603", "Transcript_4239", "Transcript_18891", "Transcript_21012", "Transcript_20776", "Transcript_54457", "Transcript_12719", "Transcript_23795", "Transcript_15760")
+
+#pcs$genes <- c("cytochrome c oxidase subunit I (mitochondrion)", "collagen alpha-1(I) chain precursor", "biorientation of chromosomes in cell division protein 1", "collagen alpha-2(I) chain precursor", "collagen, type I, alpha 1 S homeolog precursor", "splicing factor 3a, subunit 1", "keratin 5, gene 5 L homeolog", "keratin-3, type I cytoskeletal 51 kDa", "keratin-3, type I cytoskeletal 51 kDa-like (predicted")
+
+
+#first make an empty dataframe
+pcs_pop_genes_stats <- data.frame()
+
+for (i in 1:nrow(pcs)) {
+  t <- pcs[i,1]
+  g <- pcs[i,2]
+    # Now get the stats values for the transcript
+  tmp.gene = 
+  tmp.gene <- pop_lrt_results %>% dplyr::filter(target_id == t)
+  tmp.gene <- cbind(g, tmp.gene)
+  pcs_pop_genes_stats <- rbind(pcs_pop_genes_stats, tmp.gene)
+  
+  
+}
+  
+colnames(pcs_pop_genes_stats)[1] <- "gene"
+
+# For loop to make a plot for each of those genes/transcripts:
+
+for (i in 1:nrow(pcs_pop_genes_stats)){
+  transcript <- pcs_pop_genes_stats[i,2]
+  gene <- pcs_pop_genes_stats[i,1]
+  qval <- pcs_pop_genes_stats[i,5]
+  tmp <- sopop$obs_raw %>% dplyr::filter(target_id == transcript)
+  tmp <- dplyr::full_join(sopop$sample_to_covariates, tmp, by = 'sample')
+  
+  
+  tmp <- transform(tmp, week = as.numeric(week))
+a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +  geom_smooth(method = loess) + ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE)
+ 
+ print(a)
+ 
+  ggsave(paste0("pcloadings-figures/", gene, "-", transcript, "-pop.tiff"), width = 6.81, height = 3.99)
+}
+
+```
+
+
+
+
+The next step is to plot some specific color genes, for example agouti, from the dammit annotation.
+
+```{r}
+# Agouti
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_25521')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Agouti (Transcript 25521)")
+
+tmp.h <- tmp[tmp$locality == "Huallaga",]
+tmp.s <- tmp[tmp$locality == "Sauce",]
+tmp.v <- tmp[tmp$locality == "Varadero",]
+
+ggplot(tmp.h, aes(x=week, y=est_counts)) + geom_point(color = "yellow2") +  geom_smooth(method = loess) + ggtitle("Agouti (Transcript 25521)")
+
+ggplot(tmp.s, aes(x=week, y=est_counts)) + geom_point(color = "orange1") +  geom_smooth(method = loess) + ggtitle("Agouti (Transcript 25521)")
+
+ggplot(tmp.h, aes(x=week, y=est_counts)) + geom_point(color = "red1") +  geom_smooth(method = loess) + ggtitle("Agouti (Transcript 25521)")
+ 
+# Agouti from a different transcript
+tmp <- so$obs_raw %>% dplyr::filter(target_id == 'Transcript_6315')
+tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+
+
+tmp <- transform(tmp, week = as.numeric(week))
+ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "red1")) + geom_smooth(method = loess) + ggtitle("Agouti (Transcript 6315)")
+
+```
+
+
+
+
+
+Plotting specific color genes from the Xenopus protein database. This bit will print the figures to the Markdown output (si it is long). First with q values from the spline analysis:
+
+
+
+
+```{r}
+color <- data.frame(transcripts = character(28), genes = character(28))
+color$transcripts <- c("Transcript_23342","Transcript_68280", "Transcript_41319", "Transcript_23342", "Transcript_68280", "Transcript_23342", "Transcript_68280", "Transcript_20866", "Transcript_20866", "Transcript_12016", "Transcript_19946", "Transcript_68867", "Transcript_31054", "Transcript_28405", "Transcript_8404", "Transcript_64029", "Transcript_64031", "Transcript_8404", "Transcript_49748", "Transcript_21442", "Transcript_75275", "Transcript_62041", "Transcript_32702", "Transcript_11861", "Transcript_35108", "Transcript_25521", "Transcript_63155", "Transcript_23342")
+
+color$genes <- c("Melanocortin receptor 5", "Melanocortin receptor 5", "Pro-opiomelanocortin precursor", "Melanocortin receptor 3 (predicted)", "Melanocortin receptor 3 (predicted)", "Melanocortin receptor 4", "Melanocortin receptor 4", "Spire-type actin nucleation factor 1 L homeolog", "Protein spire homolog 2-like (predicted", "Protein spire homolog 1-like isoform X1 (predicted)", "Protein spire homolog 1-like isoform X1 (predicted)", "Patched 2 L homeolog", "Patched 2 S homeolog", "Patched 1 L homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis protein 11-like (predicted)", "Dedicator of cytokinesis protein 8-like isoform X2 (predicted)", "Brefeldin A-inhibited guanine nucleotide-exchange protein 1 (predicted)", "Protein unc-13 homolog D", "Protein unc-13 homolog A-like (predicted)", "Protein unc-13 homolog A-like (predicted)", "Melanoma antigen recognized by T-cells 1-like (TRYP1, predicted)", "Melanoma antigen recognized by T-cells 1-like (TRYP1, predicted)", "Agouti signaling protein", "Agouti signaling protein", "Melanocyte-stimulating hormone receptor-like (predicted)")
+
+
+#first make an empty dataframe
+color_genes_stats <- data.frame()
+
+for (i in 1:nrow(color)) {
+  t <- color[i,1]
+  g <- color[i,2]
+    # Now get the stats values for the transcript
+  tmp.gene = 
+  tmp.gene <- lrt_results %>% dplyr::filter(target_id == t)
+  tmp.gene <- cbind(g, tmp.gene)
+  color_genes_stats <- rbind(color_genes_stats, tmp.gene)
+  
+  
+}
+  
+colnames(color_genes_stats)[1] <- "gene"
+
+# For loop to make a plot for each of those genes/transcripts:
+
+for (i in 1:nrow(color_genes_stats)){
+  transcript <- color_genes_stats[i,2]
+  gene <- color_genes_stats[i,1]
+  qval <- color_genes_stats[i,5]
+  tmp <- so$obs_raw %>% dplyr::filter(target_id == transcript)
+  tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
+  tmp
+  
+  tmp <- transform(tmp, week = as.numeric(week))
+a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +  geom_smooth(method = loess) + ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE)
+ 
+ print(a)
+ 
+  ggsave(paste0("colorgene-figures/", gene, "-", transcript, "-spline.tiff"), width = 6.81, height = 3.99)
+}
+
+```
+
+
+Now I'll do basically the same thing, but with the analyses from the population.
+
+
+```{r}
+#color <- data.frame(transcripts = character(27), genes = character(27))
+#color$transcripts <- c("Transcript_23342","Transcript_68280", "Transcript_41319", "Transcript_23342", "Transcript_68280", "Transcript_23342", "Transcript_68280", "Transcript_20866", "Transcript_20866", "Transcript_12016", "Transcript_19946", "Transcript_68867", "Transcript_31054", "Transcript_28405", "Transcript_8404", "Transcript_64029", "Transcript_64031", "Transcript_8404", "Transcript_49748", "Transcript_21442", "Transcript_75275", "Transcript_62041", "Transcript_32702", "Transcript_11861", "Transcript_35108", "Transcript_25521", "Transcript_63155", "Transcript_23342")
+
+#color$genes <- c("Melanocortin receptor 5", "Melanocortin receptor 5", "Pro-opiomelanocortin precursor", "Melanocortin receptor 3 (predicted)", "Melanocortin receptor 3 (predicted)", "Melanocortin receptor 4", "Melanocortin receptor 4", "Spire-type actin nucleation factor 1 L homeolog", "Protein spire homolog 2-like (predicted", "Protein spire homolog 1-like isoform X1 (predicted)", "Protein spire homolog 1-like isoform X1 (predicted)", "Patched 2 L homeolog", "Patched 2 S homeolog", "Patched 1 L homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis 10 S homeolog", "Dedicator of cytokinesis protein 11-like (predicted)", "Dedicator of cytokinesis protein 8-like isoform X2 (predicted)", "Brefeldin A-inhibited guanine nucleotide-exchange protein 1 (predicted)", "Protein unc-13 homolog D", "Protein unc-13 homolog A-like (predicted)", "Protein unc-13 homolog A-like (predicted)", "Melanoma antigen recognized by T-cells 1-like (TRYP1, predicted)", "Melanoma antigen recognized by T-cells 1-like (TRYP1, predicted)", "Agouti signaling protein", "Agouti signaling protein", "Melanocyte-stimulating hormone receptor-like (predicted)")
+
+
+#first make an empty dataframe
+pop_color_genes_stats <- data.frame()
+
+for (i in 1:nrow(color)) {
+  t <- color[i,1]
+  g <- color[i,2]
+    # Now get the stats values for the transcript
+  tmp.gene = 
+  tmp.gene <- pop_lrt_results %>% dplyr::filter(target_id == t)
+  tmp.gene <- cbind(g, tmp.gene)
+  pop_color_genes_stats <- rbind(pop_color_genes_stats, tmp.gene)
+  
+  
+}
+  
+colnames(pop_color_genes_stats)[1] <- "gene"
+
+# For loop to make a plot for each of those genes/transcripts:
+
+for (i in 1:nrow(pop_color_genes_stats)){
+  transcript <- pop_color_genes_stats[i,2]
+  gene <- pop_color_genes_stats[i,1]
+  qval <- pop_color_genes_stats[i,5]
+  tmp <- sopop$obs_raw %>% dplyr::filter(target_id == transcript)
+  tmp <- dplyr::full_join(sopop$sample_to_covariates, tmp, by = 'sample')
+  tmp
+  
+  tmp <- transform(tmp, week = as.numeric(week))
+a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +  geom_smooth(method = loess) + ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE)
+ 
+ print(a)
+ 
+  ggsave(paste0("colorgene-figures/", gene, "-", transcript, "-pop.tiff"), width = 6.81, height = 3.99)
+}
+```
+
+
+
+Moving on to analyses that don't require the spline to examine time.
+
+```{r}
+samples$week <- as.factor(samples$week)
+time_design <- model.matrix(~0 + samples$week)
+colnames(time_design) <- levels(samples$week)
+
+sotime <- sleuth_prep(samples, full_model = time_design, num_cores = 6) #Need to build a matrix
+#sopop <- sleuth_prep(samples, full_model = pop_design, num_cores = 6)
+
+sotime <- sleuth_fit(sotime, formula = time_design, fit_name = "full")
+sotime <- sleuth_fit(sotime, formula = ~ 1, fit_name = "reduced")
+
+
+models(sotime)
+so_time_lrt <- sleuth_lrt(sotime, "reduced", "full")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+time_lrt_results <- sleuth_results(so_time_lrt, 'reduced:full', test_type = 'lrt')
+table(time_lrt_results[,"qval"] < 0.05) 
+```
+
+
+```{r}
+samples$week <- as.factor(samples$week)
+time_design <- model.matrix(~0 + samples$week)
+colnames(time_design) <- levels(samples$week)
+
+sotime2 <- sleuth_prep(samples, full_model = time_design, num_cores = 6)
+```
+
+
+
+```{r}
+#so_time_lrt <- sleuth_wt(sotime, "reduced", "full")
+
+```
+
+Drop S2-8, the possible outlier.
+
+```{r}
+samples_drop <- dplyr::filter(samples, sample != 'S2-8')
+str(samples_drop)
+
+library(splines)
+drop_week <- samples_drop$week
+drop_week <- as.numeric(drop_week)
+spline_design_drop <- model.matrix(formula( ~ ns(drop_week, df = 3)))
+spline_design_drop
+
+
+so_drop <- sleuth_prep(samples_drop, full_model = spline_design_drop, num_cores = 6)
+
+plot_pca(so_drop, point_size = 0.001) + geom_point() + aes(size = 3, colour = samples_drop$locality, shape = factor(samples_drop$week)) + scale_colour_manual(values = c("yellow1","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+ggsave(("pca_est_counts_drop_outlier.tiff"), width = 6.81, height = 3.99)
+
+plot_pca(so_drop, units = "tpm", point_size = 0.001) + geom_point() + aes(size = 3, colour = samples_drop$locality, shape = factor(samples_drop$week)) + scale_colour_manual(values = c("yellow2","orange1", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+ggsave(("pca_tpm_drop_outlier.tiff"), width = 6.81, height = 3.99)
+
+```
+
+```{r}
+plot_loadings(so_drop, pc_input = 1)
+plot_loadings(so_drop, pc_input = 2)
+```
+
+Looks like only two of these are different, 17503 and 19997.
+
+Do the model:
+```{r}
+so_drop <- sleuth_fit(so_drop, formula = spline_design_drop, fit_name = "full")
+so_drop <- sleuth_fit(so_drop, formula = ~ 1, fit_name = "reduced")
+models(so_drop)
+so_drop_lrt <- sleuth_lrt(so_drop, "reduced", "full")
+
+drop_lrt_results <- sleuth_results(so_drop_lrt, 'reduced:full', test_type = 'lrt')
+table(drop_lrt_results[,"qval"] < 0.05)
+```
+
+Presumably this does the same thing as our splines/population analyses?
+
+```{r}
+so_popxtime <- sleuth_prep(samples, num_cores = 6)
+so_popxtime <- sleuth_fit(so_popxtime, ~week + locality, 'full')
+so_popxtime <- sleuth_fit(so_popxtime, ~week, 'age')
+so_popxtime <- sleuth_fit(so_popxtime, ~locality, 'population')
+
+
+so_popxtime <- sleuth_lrt(so_popxtime, 'age', 'full')
+popxtime_results <- sleuth_results(so_popxtime, 'age:full', 'lrt', show_all = FALSE)
+table(popxtime_results[,"qval"] < 0.05)
+```
+
+
+I will now attempt to get the loadings from the PCA, which uses the function prcomp().
+
+```{r}
+
+spread_abundance_by <- function(abund, var, which_order) {
+  # var <- lazyeval::lazy(var)
+  var_spread <- abund %>%
+    select_("target_id", "sample", var) %>%
+    tidyr::spread_("sample", var) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+
+  rownames(var_spread) <- var_spread$target_id
+  var_spread["target_id"] <- NULL
+
+  result <- as.matrix(var_spread)
+
+  result[, which_order, drop = FALSE]
+}
+
+mat <- spread_abundance_by(so$obs_norm, "est_counts",
+      so$sample_to_covariates$sample)
+
+#this will run the pca, and this is what is actually being run in sleuth
+ pca_res <- prcomp(t(mat))
+ 
+ # This gives the relative contribution of each principal component, as well as the std
+ summary(pca_res) 
+ 
+ # The following bits probably aren't needed, but may be interesting for looking at contributions of specific transcripts (ie, color genes)
+ pca_res$rotation %>% head
+ 
+ aload <- abs(pca_res$rotation) #saves the absolute values
+ 
+ # this gives the relative contribution to each principal component...
+ sweep(aload, 2, colSums(aload), "/") %>% head 
+ 
+ # For example, Melanocortin receptor is probably Transcript_23342, so I can look at that transcript
+ cont <- sweep(aload, 2, colSums(aload), "/") 
+ cont <- as.data.frame(cont)
+ cont["Transcript_23342",]
+ 
+ # OK, soooo not a big contribution here.
+ 
+```
+
+
+
+Attempting a variation on some of the above analyses...
+
+```{r}
+#First, prepare the model by building the design
+library(splines)
+week <- samples$week
+week <- as.numeric(week)
+locality <- samples$locality
+#locality <- as.numeric(locality)
+
+
+full_design <- model.matrix(formula( ~ locality + ns(week, df = 3) + locality:ns(week, df = 3)))
+full_design
+
+reduced_design <- model.matrix(formula( ~ locality + ns(week, df = 3)))
+reduced_design
+
+
+so <- sleuth_prep(samples, num_cores = 6)
+
+so <- sleuth_fit(so, formula = full_design, fit_name = "full")
+so <- sleuth_fit(so, formula = reduced_design, fit_name = "reduced")
+
+models(so)
+so_lrt <- sleuth_lrt(so, "reduced", "full")
+
+lrt_results <- sleuth_results(so_lrt, 'reduced:full', test_type = 'lrt')
+table(lrt_results[,"qval"] < 0.05) #160 significant transcripts between the null and the others...
+sig_results <-  lrt_results[order(lrt_results$qval),]
+siggies <- sig_results[ which(sig_results$qval < 0.05),]
+```
+
+
+Try this biomart stuff again.
+
+```{r}
+library(biomaRt)
+xenann <- read.table("out.m8", header = FALSE)
+colnames(xenann)[c(1:12)] <- c("transcript_id", "ensembl_peptide_id_version", "percentage_id_matches",
+                              "alignment_length", "number_mismatches", "number_gap_openings",
+                              "query_start", "query_end", "alignment_start", "alignment_end",
+                              "expected_value", "bitscore")
+
+ensembl=useMart("ensembl")
+xen <- useMart("ensembl", dataset = "xtropicalis_gene_ensembl")
+
+human <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+                         
+# To get the possible attributes to download: atts <- listAttributes(mart = xen)
+
+t2g <- biomaRt::getBM(attributes = c("ensembl_peptide_id_version", "ensembl_transcript_id",
+                                     "transcript_version",
+                                     "ensembl_gene_id",
+                                     "external_gene_name", "description",
+                                     "transcript_biotype", "go_id", "name_1006",
+                                     "definition_1006", "go_linkage_type", "namespace_1003",
+                                     "goslim_goa_accession", "goslim_goa_description"),
+                                      mart = xen)
+
+
+# There is an attribute that is "go_id", potentially that will work for GO analyses? Maybe not with GOrilla
+
+
+t3g <- getLDS(attributes = c("ensembl_peptide_id_version", "ensembl_transcript_id",
+                                     "transcript_version",
+                                     "ensembl_gene_id",
+                                     "external_gene_name", "description",
+                                     "transcript_biotype"),
+                                      mart = xen,
+      attributesL = c("ensembl_gene_id", "go_id", "name_1006", "definition_1006",
+                                     "go_linkage_type", "namespace_1003", "goslim_goa_accession",
+                                     "goslim_goa_description"), martL = human)
+write.csv(t3g, "xenopus_biomart_data.csv")
+  # t3g <- read.csv("xenopus_biomart_data.csv")
+  # t3g <- t3g[,-1]
+#write.csv(xenann, "xenopus_annotation_plus_GO.csv")
+
+#first make an empty dataframe
+targets <- data.frame()
+
+require(dplyr)
+for (i in 1:nrow(xenann)) {
+  id <- xenann[i,1]
+  t <- xenann[i,2]
+    # Now get the stats values for the transcript
+  tmp =
+  tmp <- t2g %>% dplyr::filter(ensembl_peptide_id_version == t)
+  tmp <- tmp[,-1]
+  if (nrow(tmp) == 0) {tmp <- data.frame(ensembl_transcript_id = NA,
+                                     transcript_version = NA,
+                                     ensembl_gene_id = NA,
+                                     external_gene_name, description = NA,
+                                     transcript_biotype = NA, go_id = NA, name_1006 = NA,
+                                     definition_1006 = NA, go_linkage_type = NA, 
+                                     namespace_1003 = NA,
+                                     goslim_goa_accession = NA, goslim_goa_description = NA)}
+  tmp <- cbind(id, t, tmp)
+  targets <- rbind(targets, tmp)
+  
+  
+}
+  
+
+colnames(targets)[1:2] <- c("target_id", "ensembl_peptide_id_version")
+
+# Now I want to combine them iwth the model results
+# Model results are in lrt_results
+# Reorder by transcript name
+lrt_results <- lrt_results[order(lrt_results$target_id),]
+
+# Now merge the model results with the annotation data...
+tmp <- merge(lrt_results, targets, by = "target_id", all = TRUE, sort = FALSE)
+    ## I believe this worked. Went through a few of them to verify...
+
+# Now to see if I can do some GO analyses...
+  # Use topGO in R. 
+  # install it
+source("http://bioconductor.org/biocLite.R")
+biocLite("topGO")
+library(topGO)
+
+
+```
+
+
+Ok, trying yet another new thing. This time I'm going to run the above analysis, but then use the gene information from biomart after the fact. It basically multiplied all my hits and inflated my results.
+
+
+
+```{r}
+sampleGOdata <- new("topGOdata",
+ description = "Simple session", ontology = "BP",
+ allGenes = geneList, geneSel = topDiffGenes, nodeSize = 10,
+ annot = annFUN.db, affyLib = affyLib)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+############Attempting to do the biomart bit in parallel because it took forever.
+
+# This should theoretically work to do it in parallel
+  # narrator voice: it did not
+
+library(doParallel)
+library(foreach)
+cl <- makeCluster(12)
+registerDoParallel(cl)
+#FOR LOOP HERE
+targets <- data.frame()
+
+require(dplyr)
+foreach(i= 1:nrow(xenann)) %dopar% {
+  id <- xenann[i,1]
+  t <- xenann[i,2]
+    # Now get the stats values for the transcript
+  tmp = 
+  # tmp.targets =
+  tmp <- dplyr::filter(t3g, Protein.stable.ID.version == t)
+  tmp <- tmp[,-1]
+  if (nrow(tmp) == 0) {tmp <- data.frame(Protein.stable.ID.version = NA, Transcript.stable.ID = NA, Version..transcript. = NA, Gene.stable.ID = NA, Gene.name = NA, Gene.description = NA, Transcript_type = NA, Gene.stable.ID.1 = NA, GO.term.accession = NA, GO.term.name = NA, GO.term.definition = NA, GO.term.evidence.code = NA, GO.domain = NA, GOSlim.GOA.Accession.s. = NA, GOSlim.GOA.Description = NA)}
+  tmp <- cbind(id, t, tmp)
+  targets <- rbind(targets, tmp)
+  
+  
+}
+
+
+stopCluster(cl)
+### Holy shit, this took so FUCKING long to run. I need to parallelize this fucker.
+
+# This should theoretically work to do it in parallel
+
+library(doParallel)
+library(foreach)
+cl <- makeCluster(12)
+registerDoParallel(cl)
+#FOR LOOP HERE
+targets <- data.frame()
+
+require(dplyr)
+foreach(i= 1:nrow(xenann)) %dopar% {
+  id <- xenann[i,1]
+  t <- xenann[i,2]
+    # Now get the stats values for the transcript
+  tmp = 
+  # tmp.targets =
+  tmp <- dplyr::filter(t3g, Protein.stable.ID.version == t)
+  tmp <- tmp[,-1]
+  if (nrow(tmp) == 0) {tmp <- data.frame(Protein.stable.ID.version = NA, Transcript.stable.ID = NA, Version..transcript. = NA, Gene.stable.ID = NA, Gene.name = NA, Gene.description = NA, Transcript_type = NA, Gene.stable.ID.1 = NA, GO.term.accession = NA, GO.term.name = NA, GO.term.definition = NA, GO.term.evidence.code = NA, GO.domain = NA, GOSlim.GOA.Accession.s. = NA, GOSlim.GOA.Description = NA)}
+  tmp <- cbind(id, t, tmp)
+  targets <- rbind(targets, tmp)
+  
+  
+}
+
+
+stopCluster(cl)
+
+#colnames(color_genes_stats)[1] <- "gene"
+
+#colnames(color_genes_stats)[1] <- "gene"
+
+````
