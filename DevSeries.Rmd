@@ -647,7 +647,7 @@ siggies <- sig_results[ which(sig_results$qval < 0.05),]
 Try this biomart stuff again.
 
 ```{r}
-library(biomaRt)
+
 xenann <- read.table("out.m8", header = FALSE)
 colnames(xenann)[c(1:12)] <- c("transcript_id", "ensembl_peptide_id_version", "percentage_id_matches",
                               "alignment_length", "number_mismatches", "number_gap_openings",
@@ -657,8 +657,6 @@ colnames(xenann)[c(1:12)] <- c("transcript_id", "ensembl_peptide_id_version", "p
 ensembl=useMart("ensembl")
 xen <- useMart("ensembl", dataset = "xtropicalis_gene_ensembl")
 
-human <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
-                         
 # To get the possible attributes to download: atts <- listAttributes(mart = xen)
 
 t2g <- biomaRt::getBM(attributes = c("ensembl_peptide_id_version", "ensembl_transcript_id",
@@ -671,47 +669,11 @@ t2g <- biomaRt::getBM(attributes = c("ensembl_peptide_id_version", "ensembl_tran
                                       mart = xen)
 
 
-# There is an attribute that is "go_id", potentially that will work for GO analyses? Maybe not with GOrilla
-
-
-t3g <- getLDS(attributes = c("ensembl_peptide_id_version", "ensembl_transcript_id",
-                                     "transcript_version",
-                                     "ensembl_gene_id",
-                                     "external_gene_name", "description",
-                                     "transcript_biotype"),
-                                      mart = xen,
-      attributesL = c("ensembl_gene_id", "go_id", "name_1006", "definition_1006",
-                                     "go_linkage_type", "namespace_1003", "goslim_goa_accession",
-                                     "goslim_goa_description"), martL = human)
-write.csv(t3g, "xenopus_biomart_data.csv")
-  # t3g <- read.csv("xenopus_biomart_data.csv")
-  # t3g <- t3g[,-1]
-#write.csv(xenann, "xenopus_annotation_plus_GO.csv")
 
 #first make an empty dataframe
 targets <- data.frame()
 
-require(dplyr)
-for (i in 1:nrow(xenann)) {
-  id <- xenann[i,1]
-  t <- xenann[i,2]
-    # Now get the stats values for the transcript
-  tmp =
-  tmp <- t2g %>% dplyr::filter(ensembl_peptide_id_version == t)
-  tmp <- tmp[,-1]
-  if (nrow(tmp) == 0) {tmp <- data.frame(ensembl_transcript_id = NA,
-                                     transcript_version = NA,
-                                     ensembl_gene_id = NA,
-                                     external_gene_name, description = NA,
-                                     transcript_biotype = NA, go_id = NA, name_1006 = NA,
-                                     definition_1006 = NA, go_linkage_type = NA, 
-                                     namespace_1003 = NA,
-                                     goslim_goa_accession = NA, goslim_goa_description = NA)}
-  tmp <- cbind(id, t, tmp)
-  targets <- rbind(targets, tmp)
-  
-  
-}
+
   
 
 colnames(targets)[1:2] <- c("target_id", "ensembl_peptide_id_version")
@@ -724,12 +686,6 @@ lrt_results <- lrt_results[order(lrt_results$target_id),]
 
 
 ```
-
-
-Ok, trying yet another new thing. This time I'm going to run the above analysis, but then use the gene information from biomart after the fact. It basically multiplied all my hits and inflated my results.
-
-
-
 
 
 
