@@ -25,6 +25,7 @@ wait
 
 printf " ################################################ \n \
 ############### Initiating ORP ################# \n \
+# This will take a while, go watch a Star War. # \n \
 ################################################ \n"
 
 ## probably need to edit the number of threads and overall memory...
