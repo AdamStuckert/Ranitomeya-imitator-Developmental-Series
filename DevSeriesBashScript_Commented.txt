@@ -18,8 +18,8 @@ printf " ################################################ \n \
 #############Subsampling reads now############## \n \
 ################################################ \n"
 
-seqtk sample -s100 all_reads_R1.fastq 30000000 > subsamp.R1.fastq &
-seqtk sample -s100 all_reads_R2.fastq 30000000 > subsamp.R2.fastq
+seqtk sample -s100 all_reads_R1.fastq 40000000 > subsamp.R1.fastq &
+seqtk sample -s100 all_reads_R2.fastq 40000000 > subsamp.R2.fastq
 
 wait
 
