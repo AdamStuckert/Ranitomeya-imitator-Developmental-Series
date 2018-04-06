@@ -9,8 +9,8 @@ printf " ################################################ \n \
 ############Concatenating reads now############# \n \
 ################################################ \n"
 
-Cat *R1.fq > all_reads_R1.fastq &
-Cat *R2.fq > all_reads_R2.fastq
+for i in reads/*R1.fastq.gz; do zcat $i; echo; done > all_reads_R1.fastq &
+for f in reads/*R2.fastq.gz; do zcat $f; echo; done > all_reads_R2.fastq 
 
 wait
 
@@ -25,86 +25,92 @@ wait
 
 printf " ################################################ \n \
 ############### Initiating ORP ################# \n \
-# This will take a while, go watch a Star War. # \n \
 ################################################ \n"
 
 ## probably need to edit the number of threads and overall memory...
 
 /home/summersk/programs/Oyster_River_Protocol/oyster35.mk main \
-MEM=1500 \
-CPU=24 \
+MEM=750 \
+CPU=28 \
 READ1=subsamp.R1.fastq \
 READ2=subsamp.R2.fastq \
 RUNOUT=subsamp
 
-# The transcriptome is in a different file, so move it and give it a somewhat more informative name
-cp assemblies/subsamp.orthomerged.fasta .
-mv subsamp.orthomerged.fasta devseries.subsampled.fasta
+# The transcriptome is in a different file, so I'll take the 'good' transcripts and move that fasta
+cp /home/summersk/Developmental_series/orthofuse/subsamp/merged/merged/good.merged.fasta .
 
-printf " ################################################ \n \
-############# Dammit! Annotation ############### \n \
-################################################ \n"
+# Rename all the transcripts, largely for aesthetics...
+awk '/^>/{print ">Transcript_" ++i; next}{print}' good.merged.fasta > subsamp.imitator.merged.fasta
 
-# Annotate the transcriptome using dammit
-# Move to a python3 environment
-. ~/py3/bin/activate
+# verify the 'good' transcripts isn't a bad idea
+python /home/summersk/programs/busco/scripts/run_BUSCO.py -i subsamp.imitator.merged.fasta -m transcriptome --cpu 24 -l /home/summersk/busco_dbs/eukaryota_odb9 -o good_busco
 
-# Now create the databases
-dammit databases --install --full
-
-# Then run the annotation
-dammit annotate devseries.subsampled.fasta --full --busco-group metazoa --n_threads 28
-
-# unzip all the files
-parallel -j 54 gunzip {} ::: *.fastq.gz
 
 printf " ################################################ \n \
 ######### Trim and clean other reads ########### \n \
 ################################################ \n"
 
 # Remove adaptors and trim the reads from each sample, first get the samples
-samples=$(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp)
+samples=$(ls reads/*fastq.gz | sed "s/.R1.fastq//g" | sed "s/.R2.fastq//g")
 
-# Then run trimmomatic
-(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp) | \
+# Run trimmomatic
+cd reads
+(ls *fastq.gz | sed "s/.R1.fastq.gz//g" | sed "s/.R2.fastq.gz//g") | \
 parallel -j 10 trimmomatic-0.36.jar PE -threads 4 \
--baseout rcorr/{}_TRIM.fastq {}_R1.fastq {}_R2.fastq \
+-baseout /home/summersk/Developmental_series/rcorr/{}.TRIM.fastq.gz {}.R1.fastq.gz {}.R2.fastq.gz \
 LEADING:3 TRAILING:3 ILLUMINACLIP:barcodes.fa:2:30:10 MINLEN:25 
 
-# R corrector
-(ls *fastq | sed "s/_R1.fastq//g" | sed "s/_R2.fastq//g" | uniq | grep -v all_reads | grep -v subsamp) | \
-parallel -j 10 run_rcorrector.pl -t 10 -k 31 -1 rcorr/{}_TRIM_1P.fastq -2 rcorr/{}_TRIM_2P.fastq -od rcorr
+# R corrector  | sed "s/rcorr\//g"
+cd ..
+(ls rcorr/*P.fastq.gz | sed "s/.TRIM_1P.fastq.gz//g" | sed "s/.TRIM_2P.fastq.gz//g"  | uniq | grep -v subsamp) | \
+parallel -j 6 run_rcorrector.pl -t 4 -k 31 -1 {}.TRIM_1P.fastq.gz -2 {}.TRIM_2P.fastq.gz -od rcorr
 
 printf " ################################################ \n \
 ######## Pseduo-quantify with Kallisto ######### \n \
 ################################################ \n"
 
-# Pseudo-quantification with kallisto, build the index first
-kallisto index -i subsamp_devseries.idx devseries.subsampled.fasta
-
 # Make directories for each sample:
+cd rcorr/
+samples=$(ls *P.cor.fq.gz | sed "s/.TRIM_1P.cor.fq.gz//g" | sed "s/.TRIM_2P.cor.fq.gz//g" | uniq)
+cd ..
 mkdir kallisto_quants
 cd kallisto_quants
 for i in $samples; do mkdir $i; done
 cd ..
 
+# Pseudo-quantification with kallisto, build the index first
+kallisto index -i subsamp_devseries.idx subsamp.imitator.merged.fasta
+
 # Perform the actual pseudo-quantification
 
-parallel -j 15 kallisto quant -i subsamp_devseries.idx -o kallisto_quants/{} -b 100 \
-{}.TRIM_1P.cor.fq {}.TRIM_2P.cor.fq ::: $samples
+parallel -j 10 kallisto quant -i subsamp_devseries.idx -o kallisto_quants/{} -b 100 \
+rcorr/{}.TRIM_1P.cor.fq.gz rcorr/{}.TRIM_2P.cor.fq.gz ::: $samples
 
 printf " ################################################ \n \
 ######## Diamond annotation to Xenopus ######### \n \
 ################################################ \n"
 
-# Get the biomart gene tags
-#Annotate with diamond, which first requires building a blast database:
-diamond makedb --in Xenopus_tropicalis.JGI_4.2.pep.all.fa -d subsamp_devseries
+#### Annotation with diamond to amphibian (xenopus, nanorana, rana peptides) + UniRef90 databases
 
-# And finally, create a blast table from it:
-diamond blastx -d subsamp_devseries -q devseries.subsampled.fasta -o subsamp_xeno.m8 --threads 16
+# cat all peptides together (, makedb in diamond
+cat GCA_002284835.2_RCv2.1_protein.faa Nanorana_parkeri.gene.v2.pep orthodb.fasta uniref90.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
 
-# This gives me the ensembl transcript id for each transcript in the transcriptome if there is one
+# Make the diamond index  
+diamond makedb --in all_peptides.fa -d allpep
+
+# Diamond mapping
+diamond blastx -d /home/summersk/peptide_databases/allpep.dmnd -q subsamp.imitator.merged.fasta -o subimi2allpep.m8 --threads 16
+
+# sort by top hit
+sort subimi2allpep.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
+
+## This approach yields 50.7% annotation rate
+
+# I will also annotate just to xenopus, in case that makes a difference for pulling out gene names
+diamond blastx -d /home/summersk/peptide_databases/xen.dmnd -q subsamp.imitator.merged.fasta -o subimi2xen.m8 --threads 16
+
+# sort by top hit
+sort subimi2xen.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimixen_tophit.txt
 
 # Now, download all of this on to my computer using cyberduck like a pleb.
 	# This includes the kallisto quantifications as well as the annotation output file from diamond
