@@ -92,8 +92,8 @@ printf " ################################################ \n \
 
 #### Annotation with diamond to amphibian (xenopus, nanorana, rana peptides) + UniRef90 databases
 
-# cat all peptides together (, makedb in diamond
-cat GCA_002284835.2_RCv2.1_protein.faa Nanorana_parkeri.gene.v2.pep orthodb.fasta uniref90.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
+# cat all peptides together 
+cat GCA_002284835.2_RCv2.1_protein.faa Nanorana_parkeri.gene.v2.pep uniref90.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
 
 # Make the diamond index  
 diamond makedb --in all_peptides.fa -d allpep
@@ -110,7 +110,16 @@ sort subimi2allpep.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimiallpep_t
 diamond blastx -d /home/summersk/peptide_databases/xen.dmnd -q subsamp.imitator.merged.fasta -o subimi2xen.m8 --threads 16
 
 # sort by top hit
-sort subimi2xen.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimixen_tophit.txt
+sort subimi2xen.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimixen_tophit.txt
+
+sort subimi2allpep.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
+
+
+# UniRef90 hits:
+grep "UniRef90_" subimiallpep_tophit.txt > tmp.txt
+awk '{print $2}' tmp.txt > unirefs
+
+# Use this to download the uniref90 hits via the website. Use IDs to get details, only taking the "reviewed" SwissProt hits!
 
 # Now, download all of this on to my computer using cyberduck like a pleb.
 	# This includes the kallisto quantifications as well as the annotation output file from diamond
