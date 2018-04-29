@@ -135,29 +135,46 @@ colnames(u2g) <- c("peptide_id", "gene_name")
 
 # merge all
 a2g <- rbind(x2g, n2g, u2g)
-```
 
 
-```{r}
-# First download the Xenopus annotation from linux/enrique
+# ADD ANNOTATION RESULtS; full first
 ann <- read.table("subimiallpep_tophit.txt", header = FALSE, fill = TRUE)
 colnames(ann)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matches",
                               "alignment_length", "number_mismatches", "number_gap_openings",
                               "query_start", "query_end", "alignment_start", "alignment_end",
                               "expected_value", "bitscore")
+ann <- ann[,c(1:2,11)]
+
+ann <- dplyr::left_join(ann, a2g, by = "peptide_id")
+colnames(ann) <- c("target_id", "full_peptide_id", "full_evalue", "full_gene_name")
+
+# Xenopus hit
+xen <- read.table("subimixen_tophit.txt", header = FALSE, fill = TRUE)
+colnames(xen)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matches",
+                              "alignment_length", "number_mismatches", "number_gap_openings",
+                              "query_start", "query_end", "alignment_start", "alignment_end",
+                              "expected_value", "bitscore")
+
+xen <- xen[,c(1:2,11)]
+
+xen <- dplyr::left_join(xen, a2g, by = "peptide_id")
+colnames(xen) <- c("target_id", "xen_peptide_id", "xen_evalue", "xen_gene_name")
+
+anno <- dplyr::left_join(ann, xen, by = "target_id")
 
 
+```
 
-ann <- ann[,c(1:2)]
+
+```{r}
+
 
 samples$week <- as.factor(samples$week)
 
-biggie <- dplyr::left_join(ann, a2g, by = "peptide_id")
-colnames(biggie)[1] <- "target_id"
 
-so <- sleuth_prep(samples,  num_cores = 6, target_mapping = biggie)
+so <- sleuth_prep(samples,  num_cores = 6, target_mapping = anno)
 
-so <- sleuth_fit(so, formula = spline_design, fit_name = "full")
+so <- sleuth_fit(so, formula = spline_design, fit_name = "full") # changed from spline_design
 so <- sleuth_fit(so, formula = ~ lane, fit_name = "reduced")
 #so <- sleuth_fit(so, full_model = spline_design)
 models(so)
@@ -166,6 +183,9 @@ so_lrt <- sleuth_lrt(so, "reduced", "full")
 # Ok I don't know why that doesn't actually work....
 
 lrt_results <- sleuth_results(so_lrt, 'reduced:full', test_type = 'lrt')
+
+
+
 table(lrt_results[,"qval"] < 0.05)
 sig_results <-  lrt_results[order(lrt_results$qval),]
 siggies <- sig_results[ which(sig_results$qval < 0.05),]
@@ -173,29 +193,30 @@ siggies <- sig_results[ which(sig_results$qval < 0.05),]
 colors <- read.csv("color_genes.csv")
 colnames(colors)[1] <- "gene_name"
 
-
 # Make them all lower case...
 colors$gene_name <- tolower(colors$gene_name)
+lrt_results$full_gene_name <- tolower(lrt_results$full_gene_name)
+lrt_results$xen_gene_name <- tolower(lrt_results$xen_gene_name)
 
-lrt_results$gene_name <- tolower(lrt_results$gene_name)
-colorgenes <- dplyr::left_join(colors, lrt_results, by = "gene_name")
 
-## Order them by 'significance'
-colorgenes <-  colorgenes[order(colorgenes$qval),]
+## LRT RESUlts and colors?!
+lrt_colors <- lrt_results %>% filter(full_gene_name %in% colors$gene_name | xen_gene_name %in% colors$gene_name)
 
-# Drop color genes that don't have an associated transcript
-colorgenes <- dplyr::filter(colorgenes, target_id != "NA")
+
+## Alphabetize
+lrt_colors <-  lrt_colors[order(lrt_colors$full_gene_name),]
+
 
 ## These are just the 'statistically significant' hits
-sig_colorgenes <- dplyr::filter(colorgenes, qval < 0.05)
+lrt_colors <- dplyr::filter(lrt_colors, qval < 0.05)
 
 
 
 ##### This will iterate through and make a nice figure for each of the statistically significant color genes
-for (i in 1:nrow(sig_colorgenes)){
-  transcript <- sig_colorgenes[i,"target_id"]
-  gene <- sig_colorgenes[i,"gene_name"]
-  qval <- sig_colorgenes[i,"qval"]
+for (i in 1:nrow(lrt_colors)){
+  transcript <- lrt_colors[i,"target_id"]
+  gene <- lrt_colors[i,"gene_name"]
+  qval <- lrt_colors[i,"qval"]
   tmp <- so$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
   tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
   tmp
@@ -208,14 +229,23 @@ a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = l
 }
 
 
-write.csv(colorgenes, "imitator_color_gene_stats.csv")
-write.csv(sig_colorgenes, "imitator_significant_color_gene_stats.csv")
+#write.csv(colorgenes, "imitator_color_gene_stats.csv")
+write.csv(lrt_colors, "imitator_significant_color_gene_stats.csv")
 
-dim(sig_colorgenes)
-significant_colorgenes <- unique(sig_colorgenes$gene_name)
+dim(lrt_colors)
+unique_lrt_colors <- unique(lrt_colors$gene_name)
+
+so <- sleuth_wt(so, '(Intercept)')
+so <- sleuth_wt(so, 'ns(week, df = 3)1')
+so <- sleuth_wt(so, 'ns(week, df = 3)2')
+so <- sleuth_wt(so, 'ns(week, df = 3)3')
+week2walds <- sleuth_results(so, '(Intercept)', test_type = "wt", which_model = "full",
+  rename_cols = TRUE, show_all = TRUE)
+
+# splinetable <- kallisto_table(so)
 ```
 
-XXXX DE transcripts accounting for batch effects.
+11,646 DE transcripts accounting for batch effects.
 
 
 
@@ -230,41 +260,39 @@ Now I will functionally do the same thing as I did using the 4 time points, but 
 
 
 
-sopop <- sleuth_prep(samples, num_cores = 6, target_mapping = biggie)
+sopop <- sleuth_prep(samples, num_cores = 6, target_mapping = anno)
 
 sopop <- sleuth_fit(sopop, formula = ~ locality + lane, fit_name = "full")
 sopop <- sleuth_fit(sopop, formula = ~ lane, fit_name = "reduced")
 #so <- sleuth_fit(so, full_model = spline_design)
 models(sopop)
-sopop_lrt <- sleuth_lrt(sopop, "reduced", "full")
+pop_lrt <- sleuth_lrt(sopop, "reduced", "full")
 # so_wt <- sleuth_wt(so, "reduced", "full")
 # Ok I don't know why that doesn't actually work....
 
-pop_lrt_results <- sleuth_results(sopop_lrt, 'reduced:full', test_type = 'lrt')
+pop_lrt_results <- sleuth_results(pop_lrt, 'reduced:full', test_type = 'lrt')
 table(pop_lrt_results[,"qval"] < 0.05) #9701 significant transcripts between the null and the others...
-pop_sig_results <-  pop_lrt_results[order(pop_lrt_results$qval),]
-pop_siggies <- pop_sig_results[ which(pop_sig_results$qval < 0.05),]
+pop_lrt_results$full_gene_name <- tolower(pop_lrt_results$full_gene_name)
+pop_lrt_results$xen_gene_name <- tolower(pop_lrt_results$xen_gene_name)
 
 
-pop_lrt_results$gene_name <- tolower(pop_lrt_results$gene_name)
-colorgenes_pop <- dplyr::left_join(colors, pop_lrt_results, by = "gene_name")
+pop_lrt_colors <- pop_lrt_results %>% filter(full_gene_name %in% colors$gene_name | xen_gene_name %in% colors$gene_name)
 
-## Order them by 'significance'
-colorgenes_pop <-  colorgenes_pop[order(colorgenes_pop$qval),]
 
-# Drop color genes that don't have an associated transcript
-colorgenes_pop <- dplyr::filter(colorgenes_pop, target_id != "NA")
+## Alphabetize
+pop_lrt_colors <-  pop_lrt_colors[order(pop_lrt_colors$full_gene_name),]
+
 
 ## These are just the 'statistically significant' hits
-sig_colorgenes_pop <- dplyr::filter(colorgenes_pop, qval < 0.05)
+pop_lrt_colors <- dplyr::filter(pop_lrt_colors, qval < 0.05)
 
 
 
 ##### This will iterate through and make a nice figure for each of the statistically significant color genes
-for (i in 1:nrow(sig_colorgenes_pop)){
-  transcript <- sig_colorgenes_pop[i,"target_id"]
-  gene <- sig_colorgenes_pop[i,"gene_name"]
-  qval <- sig_colorgenes_pop[i,"qval"]
+for (i in 1:nrow(pop_lrt_colors)){
+  transcript <- pop_lrt_colors[i,"target_id"]
+  gene <- pop_lrt_colors[i,"gene_name"]
+  qval <- pop_lrt_colors[i,"qval"]
   tmp <- sopop$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
   tmp <- dplyr::full_join(sopop$sample_to_covariates, tmp, by = 'sample')
   tmp
@@ -277,18 +305,26 @@ a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = l
 }
 
 
-write.csv(colorgenes_pop, "imitator_population_color_gene_stats.csv")
-write.csv(sig_colorgenes_pop, "imitator_population_significant_color_gene_stats.csv")
+# write.csv(colorgenes_pop, "imitator_population_color_gene_stats.csv")
+write.csv(pop_lrt_colors, "imitator_population_significant_color_gene_stats.csv")
 
-significant_population_colorgenes <- unique(sig_colorgenes_pop$gene_name)
+significant_population_colorgenes <- unique(pop_lrt_colors$gene_name)
+
+sopop <- sleuth_wt(sopop, '(Intercept)')
+sopop <- sleuth_wt(sopop, 'localitySauce')
+sopop <- sleuth_wt(sopop, 'localityTarapoto')
+sopop <- sleuth_wt(sopop, 'localityVaradero')
+pop_wt_results <- sleuth_results(sopop, '(Intercept)', test_type = "wt", which_model = "full",
+  rename_cols = TRUE, show_all = TRUE)
+
 ```
 
 
 
-Looks like there are ### significant transcripts (q val < 0.05) between the populations here.
+Looks like there are 8,744 significant transcripts (q val < 0.05) between the populations here.
 
 
-```{r}
+```{r, eval = FALSE}
 
 full_design <- model.matrix(formula( ~ ns(week, df = 3) + locality + ns(week, df = 3):locality +lane))
 nopop_design <- model.matrix(formula( ~ ns(week, df = 3)  + ns(week, df = 3):locality +lane))
@@ -309,23 +345,32 @@ so.int <- sleuth_fit(so.int, formula = nopop_design, fit_name = "nopop")
 models(so.int)
 nopop_lrt <- sleuth_lrt(so.int, "full", "nopop")
 nopop_lrt_results <- sleuth_results(nopop_lrt, 'full:nopop', test_type = 'lrt')
-table(nopop_lrt_results[,"qval"] < 0.05) ### significant transcripts between the null and the others...
+table(nopop_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 
 # No morph in the model
 so.int <- sleuth_fit(so.int, formula = notime_design, fit_name = "noweek")
 models(so.int)
 noweek_lrt <- sleuth_lrt(so.int, "full", "noweek")
 noweek_lrt_results <- sleuth_results(noweek_lrt, 'full:noweek', test_type = 'lrt')
-table(noweek_lrt_results[,"qval"] < 0.05) 
+table(noweek_lrt_results[,"qval"] < 0.05) ### Produces 15,754 DE transcripts
 
 # No interaction in the model
 so.int <- sleuth_fit(so.int, formula = nointer_design, fit_name = "nointer")
 models(so.int)
 nointer_lrt <- sleuth_lrt(so.int, "full", "nointer")
 nointer_lrt_results <- sleuth_results(nointer_lrt, 'full:nointer', test_type = 'lrt')
-table(nointer_lrt_results[,"qval"] < 0.05) 
+table(nointer_lrt_results[,"qval"] < 0.05) ### Produces an NA table
+
+```
 
 
+```{r, eval = FALSE}
+
+# All of these tables are NAs....
+
+
+
+locality <- samples$locality
 
 full2_design <- model.matrix(formula( ~ ns(week, df = 3) + locality +lane))
 nopop2_design <- model.matrix(formula( ~ ns(week, df = 3) + lane))
@@ -333,8 +378,8 @@ notime2_design <- model.matrix(formula( ~ locality  +lane))
 
 so.int2 <- sleuth_prep(samples,  num_cores = 6, target_mapping = biggie)
 
-so.int2 <- sleuth_fit(so.int2, formula = full_design, fit_name = "full2")
-so.int2 <- sleuth_fit(so.int2, formula = nopop_design, fit_name = "nopop2")
+so.int2 <- sleuth_fit(so.int2, formula = full2_design, fit_name = "full2")
+so.int2 <- sleuth_fit(so.int2, formula = nopop2_design, fit_name = "nopop2")
 
 
 
@@ -342,18 +387,93 @@ so.int2 <- sleuth_fit(so.int2, formula = nopop_design, fit_name = "nopop2")
 models(so.int2)
 nopop2_lrt <- sleuth_lrt(so.int2, "full2", "nopop2")
 nopop2_lrt_results <- sleuth_results(nopop2_lrt, 'full2:nopop2', test_type = 'lrt')
-table(nopop2_lrt_results[,"qval"] < 0.05) ### significant transcripts between the null and the others...
+table(nopop2_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 
 # No week in the model
 so.int2 <- sleuth_fit(so.int2, formula = notime2_design, fit_name = "noweek2")
 models(so.int2)
 noweek2_lrt <- sleuth_lrt(so.int2, "full2", "noweek2")
 noweek2_lrt_results <- sleuth_results(noweek2_lrt, 'full2:noweek2', test_type = 'lrt')
-table(noweek2_lrt_results[,"qval"] < 0.05)
+table(noweek2_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 
 
 
 ```
 
 
+```{r, eval = FALSE}
 
+# All of these tables are NAs....
+
+
+
+locality <- samples$locality
+
+full_design <- model.matrix(formula( ~ week + locality +lane))
+nopop_design <- model.matrix(formula( ~ week + lane))
+notime_design <- model.matrix(formula( ~ locality  +lane))
+
+so <- sleuth_fit(so, formula = full_design, fit_name = "full")
+so <- sleuth_fit(so, formula = nopop_design, fit_name = "nopop")
+#so <- sleuth_fit(so, full_model = spline_design)
+models(so)
+so_lrt <- sleuth_lrt(so, "full", "nopop")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+lrt_results <- sleuth_results(so_lrt, 'full:nopop', test_type = 'lrt')
+table(lrt_results[,"qval"] < 0.05)
+
+
+so <- sleuth_fit(so, formula = notime_design, fit_name = "notime")
+#so <- sleuth_fit(so, full_model = spline_design)
+models(so)
+so_lrt2 <- sleuth_lrt(so, "full", "notime")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+lrt_results2 <- sleuth_results(so_lrt2, 'full:notime', test_type = 'lrt')
+table(lrt_results2[,"qval"] < 0.05)
+```
+
+
+Getting the overlap between the two:
+
+```{r}
+
+overlap <- lrt_colors %>% filter(target_id %in% pop_lrt_colors$target_id)
+dim(overlap)
+
+no_overlap <- lrt_colors %>% filter(!target_id %in% pop_lrt_colors$target_id)
+dim(no_overlap)
+
+
+```
+
+
+General information here:
+```{r}
+print("Number of differentially expressed transcripts between time points:")
+table(lrt_results[,"qval"] < 0.05)
+
+print("Number of differentially expressed candidate color genes between time points:")
+dim(lrt_colors)
+
+print("Unique color genes differentiall expressed between time points (full annotation only):")
+length(unique(lrt_colors$full_gene_name)) -1
+
+print("Number of differentially expressed transcripts between populations:")
+table(pop_lrt_results[,"qval"] < 0.05)
+
+print("Number of differentially expressed candidate color genes between populations:")
+dim(pop_lrt_colors)
+
+print("Unique color genes differentiall expressed between populations (full annotation only):")
+length(unique(pop_lrt_colors$full_gene_name)) -1
+
+print("Number of differentially expressed transcripts both over time and between populations:")
+dim(overlap)
+
+print("The genes differentially expressed across both time and populations:")
+print(overlap$xen_gene_name)
+```
