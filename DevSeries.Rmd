@@ -9,13 +9,16 @@ output:
 
 ```{r global_options, include=FALSE}
 knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
-library(biomaRt)
+# library(biomaRt)
 library(sleuth)
 library(dplyr)
 library(foreach)
 library(doParallel)
 library(data.table)
 library(splines)
+library(ggthemes)
+library(scales)
+library(gridExtra)
 ```
 
 #### Background ####
@@ -215,7 +218,7 @@ lrt_colors <- dplyr::filter(lrt_colors, qval < 0.05)
 ##### This will iterate through and make a nice figure for each of the statistically significant color genes
 for (i in 1:nrow(lrt_colors)){
   transcript <- lrt_colors[i,"target_id"]
-  gene <- lrt_colors[i,"gene_name"]
+  gene <- lrt_colors[i,"xen_gene_name"]
   qval <- lrt_colors[i,"qval"]
   tmp <- so$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
   tmp <- dplyr::full_join(so$sample_to_covariates, tmp, by = 'sample')
@@ -231,6 +234,11 @@ a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = l
 
 #write.csv(colorgenes, "imitator_color_gene_stats.csv")
 write.csv(lrt_colors, "imitator_significant_color_gene_stats.csv")
+write.csv(siggies, "imitator_time_significant_genes.csv")
+
+GO_siggies <- dplyr::filter(siggies, full_gene_name != "NA")
+write.csv(GO_siggies, "imitator_significant_genes_GO.csv")
+
 
 dim(lrt_colors)
 unique_lrt_colors <- unique(lrt_colors$gene_name)
@@ -275,6 +283,8 @@ table(pop_lrt_results[,"qval"] < 0.05) #9701 significant transcripts between the
 pop_lrt_results$full_gene_name <- tolower(pop_lrt_results$full_gene_name)
 pop_lrt_results$xen_gene_name <- tolower(pop_lrt_results$xen_gene_name)
 
+pop_sig_results <-  pop_lrt_results[order(pop_lrt_results$qval),]
+pop_siggies <- pop_sig_results[ which(pop_sig_results$qval < 0.05),]
 
 pop_lrt_colors <- pop_lrt_results %>% filter(full_gene_name %in% colors$gene_name | xen_gene_name %in% colors$gene_name)
 
@@ -291,7 +301,7 @@ pop_lrt_colors <- dplyr::filter(pop_lrt_colors, qval < 0.05)
 ##### This will iterate through and make a nice figure for each of the statistically significant color genes
 for (i in 1:nrow(pop_lrt_colors)){
   transcript <- pop_lrt_colors[i,"target_id"]
-  gene <- pop_lrt_colors[i,"gene_name"]
+  gene <- pop_lrt_colors[i,"xen_gene_name"]
   qval <- pop_lrt_colors[i,"qval"]
   tmp <- sopop$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
   tmp <- dplyr::full_join(sopop$sample_to_covariates, tmp, by = 'sample')
@@ -307,6 +317,10 @@ a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = l
 
 # write.csv(colorgenes_pop, "imitator_population_color_gene_stats.csv")
 write.csv(pop_lrt_colors, "imitator_population_significant_color_gene_stats.csv")
+write.csv(pop_siggies, "imitator_population_significant_genes.csv")
+
+GO_pop_siggies <- dplyr::filter(pop_siggies, full_gene_name != "NA")
+write.csv(GO_pop_siggies, "imitator_population_significant_genes_GO.csv")
 
 significant_population_colorgenes <- unique(pop_lrt_colors$gene_name)
 
@@ -318,6 +332,7 @@ pop_wt_results <- sleuth_results(sopop, '(Intercept)', test_type = "wt", which_m
   rename_cols = TRUE, show_all = TRUE)
 
 ```
+
 
 
 
@@ -364,6 +379,8 @@ table(nointer_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 ```
 
 
+
+
 ```{r, eval = FALSE}
 
 # All of these tables are NAs....
@@ -399,6 +416,8 @@ table(noweek2_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 
 
 ```
+
+
 
 
 ```{r, eval = FALSE}
@@ -450,6 +469,78 @@ dim(no_overlap)
 
 ```
 
+Code to make figures about GO data from Pantherdb.org.
+
+```{r}
+bio <- read.csv("panther/panther-biologicalprocesses.csv")
+cell <- read.csv("panther/panther-cellularcomponent.csv")
+mol <- read.csv("panther/panther-molecularfunction.csv")
+
+# make a theme
+pietheme <- theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid  = element_blank())
+
+colourCountb = length(unique(bio$Category_name))
+colourCountc = length(unique(cell$Category_name))
+colourCountm = length(unique(mol$Category_name))
+getPalette = colorRampPalette(brewer_pal(palette = "Set1")(9))
+
+
+bp <- ggplot(bio, aes(x="", y=Genes, fill=Category_name)) + geom_bar(width = 1, stat = "identity")
+bp <- bp + coord_polar("y") + theme_minimal() + ylab("Biological processes") + xlab("") + labs(fill="Category")  + pietheme +   scale_fill_manual(values = getPalette(colourCountb)) 
+bp
+ggsave("panther/biologicalprocesses-pie.png", width = 6.81, height = 3.99, dpi = 600)
+
+
+bp1 <- ggplot(bio, aes(x="", y=Genes, fill=Category_name)) + geom_bar(width = 1, stat = "identity")
+bp1 <- bp1 + theme_minimal() + ylab("Biological processes") + xlab("") + labs(fill="Category")  + pietheme +  scale_fill_canva(aes(x="", y=Genes, fill=Category_name), palette = "Cool blues") 
+bp1
+ggsave("panther/biologicalprocesses-bar.png", width = 6.81, height = 3.99, dpi = 600)
+
+# Cellular processes pie chart
+bp2 <- ggplot(cell, aes(x="", y=Genes, fill=Category_name)) + geom_bar(width = 1, stat = "identity")
+bp2 <- bp2 + coord_polar("y") + theme_minimal() + ylab("Cellular component") + xlab("") + labs(fill="Category")  + pietheme +   scale_fill_manual(values = getPalette(colourCountc))
+bp2
+ggsave("panther/cellularcomponent-pie.png", width = 6.81, height = 3.99, dpi = 600)
+
+# molecular function pie chart
+bp3 <- ggplot(mol, aes(x="", y=Genes, fill=Category_name)) + geom_bar(width = 1, stat = "identity")
+bp3 <- bp3 + coord_polar("y") + theme_minimal() + ylab("Molecular function") + xlab("") + labs(fill="Category")  + pietheme +   scale_fill_manual(values = getPalette(colourCountm))
+bp3
+ggsave("panther/molecularfunction-pie.png", width = 6.81, height = 3.99, dpi = 600)
+
+
+
+# Produce the same plots as above, but just make them bar charts
+# Biological function
+# bio <-  bio[order(-bio$Genes),]
+bio$Category_name <- factor(bio$Category_name, levels = bio$Category_name[order(bio$Genes)])
+bp4 <- ggplot(bio, aes(x=Category_name, y=Genes)) + geom_bar(width = 1, stat = "identity") 
+bp4 <- bp4 + coord_flip() + ylab("Number of genes") + xlab("Biological processes") + labs(fill="Category") + theme_bw()   
+bp4
+ggsave("panther/biologicalprocesses-bar.png", width = 6.81, height = 3.99, dpi = 600)
+
+# Cellular processes
+cell$Category_name <- factor(cell$Category_name, levels = cell$Category_name[order(cell$Genes)])
+bp5 <- ggplot(cell, aes(x=Category_name, y=Genes)) + geom_bar(width = 1, stat = "identity")
+bp5 <- bp5 + coord_flip() + ylab("Number of genes") + xlab("Cellular processes") + labs(fill="Category") + theme_bw()   
+bp5
+ggsave("panther/Cellularprocesses-bar.png", width = 6.81, height = 3.99, dpi = 600)
+
+# Molecular function
+mol$Category_name <- factor(mol$Category_name, levels = mol$Category_name[order(mol$Genes)])
+bp6 <- ggplot(mol, aes(x=Category_name, y=Genes)) + geom_bar(width = 1, stat = "identity")
+bp6 <- bp6 + coord_flip() + ylab("Number of genes") + xlab("Molecular function") + labs(fill="Category") + theme_bw()   
+bp6
+ggsave("panther/molecularfunction-bar.png", width = 6.81, height = 3.99, dpi = 600)
+
+# Combine the three boxplots
+com <- grid.arrange(bp4, bp5, bp6, nrow = 3)
+com
+ggsave("panther/combinedbarplots.png", com, width = 6.81, height = 12, dpi = 600)
+```
+
+
+
 
 General information here:
 ```{r}
@@ -477,3 +568,6 @@ dim(overlap)
 print("The genes differentially expressed across both time and populations:")
 print(overlap$xen_gene_name)
 ```
+
+
+
