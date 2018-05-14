@@ -1,0 +1,15 @@
+Category_name,Genes,Percent_genes,Percent_biologicalprocesses_hits
+cellular component organization or biogenesis (GO:0071840),377,14.80%,9.40%
+cellular process (GO:0009987),1198,46.90%,29.80%
+localization (GO:0051179),332,13.00%,8.30%
+reproduction (GO:0000003),25,1.00%,0.60%
+biological regulation (GO:0065007),349,13.70%,8.70%
+response to stimulus (GO:0050896),282,11.00%,7.00%
+developmental process (GO:0032502),198,7.70%,4.90%
+rhythmic process (GO:0048511),2,0.10%,0.00%
+multicellular organismal process (GO:0032501),150,5.90%,3.70%
+locomotion (GO:0040011),39,1.50%,1.00%
+biological adhesion (GO:0022610),42,1.60%,1.00%
+metabolic process (GO:0008152),985,38.60%,24.50%
+growth (GO:0040007),2,0.10%,0.00%
+immune system process (GO:0002376),40,1.60%,1.00%

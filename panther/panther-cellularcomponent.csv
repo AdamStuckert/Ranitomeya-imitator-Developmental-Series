@@ -1,0 +1,9 @@
+Category_name,Genes,Percent_genes,Percent_component_hits
+synapse (GO:0045202),18,0.70%,0.80%
+cell junction (GO:0030054),23,0.90%,1.00%
+membrane (GO:0016020),270,10.60%,11.40%
+macromolecular complex (GO:0032991),353,13.80%,14.90%
+extracellular matrix (GO:0031012),16,0.60%,0.70%
+cell part (GO:0044464),954,37.30%,40.30%
+organelle (GO:0043226),670,26.20%,28.30%
+extracellular region (GO:0005576),64,2.50%,2.70%

@@ -45,7 +45,7 @@ kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants"
 samples <- read.table("devel-sleuth-full.txt", header = TRUE)
 samples <- samples[order(samples$sample),]
 #combine into a single combined factor
-group <- factor(paste(samples$locality,samples$week,sep="."))
+group <- factor(paste(samples$locality,samples$week,sep="_"))
 samples <- cbind(samples,group=group)
 samples <- dplyr::mutate(samples, path = kal_dirs)
 samples
@@ -570,4 +570,173 @@ print(overlap$xen_gene_name)
 ```
 
 
+Load modified code from the Sleuth package.
+```{r}
+plot_transcript_heatmap <- function(obj,
+  transcripts,
+  units = 'tpm',
+  trans = 'log',
+  offset = 1) {
 
+  # units <- check_quant_mode(obj, units)
+
+  if(!all(transcripts %in% obj$obs_norm$target_id)) {
+    stop("Couldn't find the following transcripts: ",
+      paste(transcripts[!(transcripts %in% obj$obs_norm$target_id)], collapse = ", "),
+      "\n\tIt is highly likely that some of them were filtered out.")
+  }
+
+  tabd_df <- obj$obs_norm[obj$obs_norm$target_id %in% transcripts, ]
+  
+  if (units == 'tpm') {
+    tabd_df <- dplyr::select(tabd_df, target_id, sample, tpm)
+    tabd_df <- reshape2::dcast(tabd_df, target_id ~sample, value.var = 'tpm')
+  } else if (units == 'est_counts') {
+    tabd_df <- dplyr::select(tabd_df, target_id, sample, est_counts)
+    tabd_df <- reshape2::dcast(tabd_df, target_id ~sample, value.var = 'est_counts')
+  } else {
+    stop("Didn't recognize the following unit: ", units)
+  }
+
+  rownames(tabd_df) <- tabd_df$target_id
+  tabd_df$target_id <- NULL
+
+  p <- NULL
+  if (nchar(trans) > 0 && !is.null(trans)) {
+    tFunc <- eval(parse(text = trans))
+    p <- ggPlotExpression(as.matrix(tFunc(tabd_df + offset)), clustRows = FALSE)
+  } else {
+    p <- ggPlotExpression(as.matrix(tabd_df), clustRows = FALSE)
+  }
+
+  p
+}
+ggPlotExpression <- function(exMat, clustRows = TRUE, clustCols = TRUE,
+                             rowNames = TRUE, colNames = TRUE) {
+    if (is(exMat, 'matrix')) {
+        exMat <- as.matrix(exMat)
+        stopifnot(class(exMat) == 'matrix')
+    }
+    exMat <- t(exMat)
+    rowOrder <- 1:nrow(exMat)
+    colOrder <- 1:ncol(exMat)
+    if (clustRows)
+        rowOrder <- orderByDendrogram(exMat)
+    if (clustCols)
+        colOrder <- orderByDendrogram(t(exMat))
+    exMat <- exMat[rowOrder, colOrder]
+    meltMat <- reshape2::melt(exMat, varnames = c("x", "y"))
+    breaksM <- round(seq(min(meltMat$value, na.rm = T), max(meltMat$value, na.rm = T),
+                         length.out = 10), 3)
+                         #print(rownames(exMat))
+    if (is.null(colnames(exMat)))
+        colnames(exMat) <- 1:ncol(exMat)
+    meltMat$y <- factor(meltMat$y, levels = colnames(exMat))
+    meltMat$x <- factor(meltMat$x, levels = rownames(exMat))
+    shortsamples <- samples[,c(1,6)]
+    colnames(shortsamples)[1] <- "x"
+   meltMat <- dplyr::left_join(meltMat, shortsamples, by = x)
+    write.csv(meltMat, "ggplotorder.csv")
+    p <- ggplot(meltMat, aes(x, y, fill = value))
+    p <- p + geom_tile() + scale_fill_gradientn(colours = heat.colors(20),
+          guide = guide_legend(title = "Expression: ",
+                               reverse = T, size = 14))
+    p <- p + theme_bw() + theme(legend.text = element_text(size = 14),
+     legend.title = element_text(size = 14),
+     legend.direction = 'vertical',
+     legend.position = 'right',
+     legend.background = element_rect(colour = "black", size = 0.5, linetype = 1),
+     axis.title = element_blank())
+    if (rowNames)
+        p <- p + theme(axis.text.x = element_text(angle = 90, size = 14))
+    else
+        p <- p + theme(axis.text.x = element_text(size = 0))
+
+    if (colNames)
+        p <- p + theme(axis.text.y = element_text(size = 14))
+    else
+        p <- p + theme(axis.text.y = element_text(size = 0))
+
+    p
+    #list(plot = p, rowOrder = rowOrder, colOrder = colOrder)
+}
+orderByDendrogram <- function(mat) {
+    hc <- hclust(dist(mat))
+    dc <- as.dendrogram(hc)
+    order.dendrogram(dc)
+}
+```
+
+
+Make a pteridine heatmap...
+
+```{r, eval = FALSE}
+# load pteridine transcripts 
+pterinfo <- read.csv("heatmapdocs/pteridinegenes.csv")
+pterinfo <- pterinfo[,-1]
+
+
+
+ptheat <- plot_transcript_heatmap(sopop, pterinfo$target_id, units = "est_counts", trans = "log") + labs(title = "Pteridine genes") + theme(plot.title = element_text(hjust = 0))  
+ptheat
+melteddf <- read.csv("ggplotorder.csv")
+colnames(melteddf)[3] <- "target_id"
+melteddf <- dplyr::left_join(melteddf, pterinfo, by = "target_id")
+melteddf <- melteddf[,c(3,5)]
+ptergenes <- dplyr::distinct(melteddf)
+ptheat <- ptheat + scale_y_discrete(labels = ptergenes$ptergenes)
+ptheat
+ggsave("heatmapdocs/pteridinemodifiedsleuthcodeheatmap.png", width = 8.84, height = 8.84)
+
+```
+
+
+```{r}
+# load pteridine transcripts 
+pterinfo <- read.csv("heatmapdocs/pteridinegenes.csv")
+pterinfo <- pterinfo[,-1]
+
+
+pterdf  <- sopop$obs_norm[sopop$obs_norm$target_id %in% pterinfo$target_id, ]
+pterdf <- dplyr::left_join(pterdf, samples2, by = "sample")
+pterdf <- dplyr::left_join(pterdf, pterinfo, by = "target_id")
+logpterdf <- pterdf
+logpterdf$est_counts <- log(pterdf$est_counts + 1)
+
+
+ggplot(logpterdf, aes(sample, ptergenes)) +
+    geom_tile(aes(fill = est_counts)) + scale_fill_gradientn(colours = heat.colors(20),
+          guide = guide_legend(title = "Expression: ",
+                               reverse = T, size = 14)) + 
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") +
+    theme_bw() + theme(legend.text = element_text(size = 14),
+     legend.title = element_text(size = 14),
+     legend.direction = 'vertical',
+     legend.position = 'right',
+     legend.background = element_rect(colour = "black", size = 0.5, linetype = 1),
+     axis.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Expression level")
+ggsave("heatmapdocs/pteridineheatmapmodifiedsleuthcode.png", width = 8.84, height = 6.45)
+
+
+ggplot(logpterdf, aes(sample, ptergenes)) +
+  geom_tile(aes(fill = est_counts), color = "white") +
+  scale_fill_gradient(low = "red3", high = "yellow1") +
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Expression level")
+
+
+ggsave("heatmapdocs/pteridineheatmap.png", width = 8.84, height = 6.45)
+```
+
+
+
+```{r}
+
+  
+```
