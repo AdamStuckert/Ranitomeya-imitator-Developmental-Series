@@ -37,14 +37,14 @@ sessionInfo()
 
 # Jack up the memory alloted to R...this requires quite a bit
 memory.limit(32000000)
-base_dir <- "C:/Users/Adam Stuckert/Documents/R/R projects/Developmental Series"
+base_dir <- getwd()
 sample_id <- dir(file.path(base_dir, "kallisto_quants"))
-#sample_id
+
 kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
-#kal_dirs
+
 samples <- read.table("devel-sleuth-full.txt", header = TRUE)
 samples <- samples[order(samples$sample),]
-#combine into a single combined factor
+# combine into a single combined factor
 group <- factor(paste(samples$locality,samples$week,sep="_"))
 samples <- cbind(samples,group=group)
 samples <- dplyr::mutate(samples, path = kal_dirs)
@@ -721,8 +721,8 @@ ggsave("heatmapdocs/pteridineheatmapmodifiedsleuthcode.png", width = 8.84, heigh
 
 ggplot(logpterdf, aes(sample, ptergenes)) +
   geom_tile(aes(fill = est_counts), color = "white") +
-  scale_fill_gradient(low = "red3", high = "yellow1") +
-  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") +
+  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Iridophore genes") +
   theme(legend.title = element_text(size = 10),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=16),
@@ -734,6 +734,57 @@ ggplot(logpterdf, aes(sample, ptergenes)) +
 ggsave("heatmapdocs/pteridineheatmap.png", width = 8.84, height = 6.45)
 ```
 
+Heatmaps for days.
+
+```{r}
+# load melanin transcripts 
+melinfo <- read.csv("heatmapdocs/melanophoregenes.csv")
+
+meldf  <- sopop$obs_norm[sopop$obs_norm$target_id %in% melinfo$target_id, ]
+meldf <- dplyr::left_join(meldf, samples2, by = "sample")
+meldf <- dplyr::left_join(meldf, melinfo, by = "target_id")
+logmeldf <- meldf
+logmeldf$est_counts <- log(meldf$est_counts + 1)
+
+ggplot(logmeldf, aes(sample, mel_gene_name)) +
+  geom_tile(aes(fill = est_counts), color = "white") +
+  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Melanic genes") +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Expression level")
+
+
+ggsave("heatmapdocs/melanophoreheatmap.png", width = 8.84, height = 6.45)
+
+
+# Iridophore genes
+irinfo <- read.csv("heatmapdocs/iridophoregenes.csv")
+
+irdf  <- sopop$obs_norm[sopop$obs_norm$target_id %in% irinfo$target_id, ]
+irdf <- dplyr::left_join(irdf, samples2, by = "sample")
+irdf <- dplyr::left_join(irdf, irinfo, by = "target_id")
+logirdf <- irdf
+logirdf$est_counts <- log(irdf$est_counts + 1)
+
+ggplot(logirdf, aes(sample, iridophore_gene_name)) +
+  geom_tile(aes(fill = est_counts), color = "white") +
+  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Iridophore genes") +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Expression level")
+
+
+ggsave("heatmapdocs/iridophoreheatmap.png", width = 8.84, height = 6.45)
+
+```
 
 
 ```{r}
