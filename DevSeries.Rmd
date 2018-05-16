@@ -8,6 +8,7 @@ output:
 ---
 
 ```{r global_options, include=FALSE}
+# load packages required for analyses
 knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
 # library(biomaRt)
 library(sleuth)
@@ -37,17 +38,25 @@ sessionInfo()
 
 # Jack up the memory alloted to R...this requires quite a bit
 memory.limit(32000000)
+
+# get the directory/path for each sample in this study
 base_dir <- getwd()
+# name of each sample
 sample_id <- dir(file.path(base_dir, "kallisto_quants"))
-
+# append them to get the location of each samples' quantification
 kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
-
+# read in a tab-delimited file with information about samples and treatments
 samples <- read.table("devel-sleuth-full.txt", header = TRUE)
+# order them to match up with sample paths
 samples <- samples[order(samples$sample),]
 # combine into a single combined factor
 group <- factor(paste(samples$locality,samples$week,sep="_"))
+# bind this to the sample information dataframe
 samples <- cbind(samples,group=group)
+# append paths to the sample dataframe
 samples <- dplyr::mutate(samples, path = kal_dirs)
+# print to verify everything is copacetic
+# now listen to Local H's "Bound for the floor"
 samples
 
 ```
@@ -60,13 +69,14 @@ Now I have the path to each sample in the samples dataframe, as well as the path
 
 
 ```{r}
-#First, prepare the model by building the design
+#First, prepare the model by building the design; these need to be in numeric format
 week <- samples$week
 week <- as.numeric(week)
 lane <- samples$lane
 spline_design <- model.matrix(formula( ~ ns(week, df = 3) + lane))
 spline_design
 
+# import everything into a sleuth object using the Sleuth package, this takes a while and should leave a large object (>1gb, dependent on quantity of data)
 so <- sleuth_prep(samples, num_cores = 6) 
 ```
 
@@ -76,6 +86,7 @@ Plot the PCA to see how samples fall out by time point and population.
 ```{r}
 plot_pca(so, units = "tpm", point_size = 0.001) + geom_point() + aes(size = 3, colour = samples$locality, shape = factor(samples$week)) + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
 
+# save the pca to local disk
 ggsave("pca-subsamp-spline-tpm.pdf")
 ggsave("pca-subsamp-spline-tpm.tiff", width = 6.81, height = 3.99)
 ```
@@ -119,16 +130,16 @@ ggsave("subsamp-spline-pc2-loadings.tiff", width = 6.81, height = 3.99)
 ```{r}
 # pull in the annotation information.
 ### Load the annotation data
-# Xenopus
+# Import Xenopus information, select only peptides and gene columns, rename them
 x2g <- fread("annotationmappingdocuments/xenpep2gene.tsv", header = FALSE)
 x2g <- x2g[,-1]
 colnames(x2g) <- c("peptide_id", "gene_name")
 
-# Nanorana
+# Import Nanorana information, select only peptides and gene columns, rename them
 n2g <- fread("annotationmappingdocuments/nan2gene.tsv", header = FALSE)
 colnames(n2g) <- c("peptide_id", "gene_name")
 
-# Uniref
+# Import Uniref information, select only peptides and gene columns, rename them
 u2g <- fread("annotationmappingdocuments/uniprot.tab", header = TRUE)
 u2g <- u2g[,c(1,5)]
 u2g$peptide_id <- ""
@@ -136,11 +147,11 @@ u2g$peptide_id <- paste("UniRef90_", u2g$Entry)
 u2g <- u2g[,c(3,2)]
 colnames(u2g) <- c("peptide_id", "gene_name")
 
-# merge all
+# merge all three of those into one dataframe
 a2g <- rbind(x2g, n2g, u2g)
 
 
-# ADD ANNOTATION RESULtS; full first
+# Annotation results from the full annotation database annotation
 ann <- read.table("subimiallpep_tophit.txt", header = FALSE, fill = TRUE)
 colnames(ann)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matches",
                               "alignment_length", "number_mismatches", "number_gap_openings",
@@ -151,7 +162,7 @@ ann <- ann[,c(1:2,11)]
 ann <- dplyr::left_join(ann, a2g, by = "peptide_id")
 colnames(ann) <- c("target_id", "full_peptide_id", "full_evalue", "full_gene_name")
 
-# Xenopus hit
+# Annotation results from the Xenopus only database annotation
 xen <- read.table("subimixen_tophit.txt", header = FALSE, fill = TRUE)
 colnames(xen)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matches",
                               "alignment_length", "number_mismatches", "number_gap_openings",
@@ -160,6 +171,7 @@ colnames(xen)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matche
 
 xen <- xen[,c(1:2,11)]
 
+# Merge the two different annotations
 xen <- dplyr::left_join(xen, a2g, by = "peptide_id")
 colnames(xen) <- c("target_id", "xen_peptide_id", "xen_evalue", "xen_gene_name")
 
@@ -168,31 +180,38 @@ anno <- dplyr::left_join(ann, xen, by = "target_id")
 
 ```
 
+Analyze for differential expression between timepoints. 
 
 ```{r}
 
-
+# Actual differential expressin analyses
 samples$week <- as.factor(samples$week)
 
-
+# Prepare the sleuth object again, but this time we are including our annotation information via target_mapping
 so <- sleuth_prep(samples,  num_cores = 6, target_mapping = anno)
 
+# load the full model, which includes a spline of time + the lane samples were sequenced on
 so <- sleuth_fit(so, formula = spline_design, fit_name = "full") # changed from spline_design
+# load the reduced model, this is only the lane samples were sequenced on
 so <- sleuth_fit(so, formula = ~ lane, fit_name = "reduced")
-#so <- sleuth_fit(so, full_model = spline_design)
-models(so)
-so_lrt <- sleuth_lrt(so, "reduced", "full")
-# so_wt <- sleuth_wt(so, "reduced", "full")
-# Ok I don't know why that doesn't actually work....
 
+# print the models
+models(so)
+
+# run a likelihood ratio test between the full and reduced models. This basically tests whether the inclusion of the time points explains the data better than the reduced model with just the lane. Transcripts better explained by the inclusion of time should be considered differentially expressed over time. Qvalues are corrected for multiple comparisons.
+so_lrt <- sleuth_lrt(so, "reduced", "full")
+
+# save the model results to a data frame
 lrt_results <- sleuth_results(so_lrt, 'reduced:full', test_type = 'lrt')
 
-
-
+# how many transcripts are differentially expressed if we use a cut off of a = 0.05?
 table(lrt_results[,"qval"] < 0.05)
+
+# order results by q value, then filter out only the significant ones
 sig_results <-  lrt_results[order(lrt_results$qval),]
 siggies <- sig_results[ which(sig_results$qval < 0.05),]
 
+# a priori candidate color gene database
 colors <- read.csv("color_genes.csv")
 colnames(colors)[1] <- "gene_name"
 
@@ -201,21 +220,17 @@ colors$gene_name <- tolower(colors$gene_name)
 lrt_results$full_gene_name <- tolower(lrt_results$full_gene_name)
 lrt_results$xen_gene_name <- tolower(lrt_results$xen_gene_name)
 
-
-## LRT RESUlts and colors?!
+## search through the results for anything that annotated in the full or xenopus annotation to a color gene
 lrt_colors <- lrt_results %>% filter(full_gene_name %in% colors$gene_name | xen_gene_name %in% colors$gene_name)
-
 
 ## Alphabetize
 lrt_colors <-  lrt_colors[order(lrt_colors$full_gene_name),]
 
-
 ## These are just the 'statistically significant' hits
 lrt_colors <- dplyr::filter(lrt_colors, qval < 0.05)
 
-
-
 ##### This will iterate through and make a nice figure for each of the statistically significant color genes
+# make sure that you have already made a folder called "colorgenespline-figures/" or it won't work ( you can do this in R too)
 for (i in 1:nrow(lrt_colors)){
   transcript <- lrt_colors[i,"target_id"]
   gene <- lrt_colors[i,"xen_gene_name"]
@@ -231,11 +246,11 @@ a <- ggplot(tmp, aes(x=week, y=est_counts)) + geom_point(aes(size = 3, color = l
   ggsave(paste0("colorgenespline-figures/", gene, "-", transcript, ".png"), width = 6.81, height = 3.99)
 }
 
-
-#write.csv(colorgenes, "imitator_color_gene_stats.csv")
+# save results to spreadsheets
 write.csv(lrt_colors, "imitator_significant_color_gene_stats.csv")
 write.csv(siggies, "imitator_time_significant_genes.csv")
 
+# get gene names for downstream GO analyses and save them
 GO_siggies <- dplyr::filter(siggies, full_gene_name != "NA")
 write.csv(GO_siggies, "imitator_significant_genes_GO.csv")
 
@@ -243,6 +258,7 @@ write.csv(GO_siggies, "imitator_significant_genes_GO.csv")
 dim(lrt_colors)
 unique_lrt_colors <- unique(lrt_colors$gene_name)
 
+# walds tests between time points
 so <- sleuth_wt(so, '(Intercept)')
 so <- sleuth_wt(so, 'ns(week, df = 3)1')
 so <- sleuth_wt(so, 'ns(week, df = 3)2')
@@ -254,7 +270,6 @@ week2walds <- sleuth_results(so, '(Intercept)', test_type = "wt", which_model = 
 ```
 
 11,646 DE transcripts accounting for batch effects.
-
 
 
 Now I will functionally do the same thing as I did using the 4 time points, but now by each population instead.
@@ -472,6 +487,7 @@ dim(no_overlap)
 Code to make figures about GO data from Pantherdb.org.
 
 ```{r}
+# read in the data from Panther
 bio <- read.csv("panther/panther-biologicalprocesses.csv")
 cell <- read.csv("panther/panther-cellularcomponent.csv")
 mol <- read.csv("panther/panther-molecularfunction.csv")
@@ -479,12 +495,13 @@ mol <- read.csv("panther/panther-molecularfunction.csv")
 # make a theme
 pietheme <- theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid  = element_blank())
 
+# Get the # of pie slices for each, in order to set a color palette that doesn't look  like a 4 year old just squirted all the paint colors and 'finger painted' by smearing it everywhere
 colourCountb = length(unique(bio$Category_name))
 colourCountc = length(unique(cell$Category_name))
 colourCountm = length(unique(mol$Category_name))
 getPalette = colorRampPalette(brewer_pal(palette = "Set1")(9))
 
-
+# Make and save a pie chart and bar chart for each
 bp <- ggplot(bio, aes(x="", y=Genes, fill=Category_name)) + geom_bar(width = 1, stat = "identity")
 bp <- bp + coord_polar("y") + theme_minimal() + ylab("Biological processes") + xlab("") + labs(fill="Category")  + pietheme +   scale_fill_manual(values = getPalette(colourCountb)) 
 bp
@@ -570,7 +587,7 @@ print(overlap$xen_gene_name)
 ```
 
 
-Load modified code from the Sleuth package.
+Load modified heatmap code from the Sleuth package. I probably won't actually use this, but it could be helpful.
 ```{r}
 plot_transcript_heatmap <- function(obj,
   transcripts,
@@ -668,7 +685,7 @@ orderByDendrogram <- function(mat) {
 ```
 
 
-Make a pteridine heatmap...
+Make a pteridine heatmap via the Sleuth code; again I probably won't use this.
 
 ```{r, eval = FALSE}
 # load pteridine transcripts 
@@ -690,16 +707,24 @@ ggsave("heatmapdocs/pteridinemodifiedsleuthcodeheatmap.png", width = 8.84, heigh
 
 ```
 
+Now, make heatmaps that are arranged by population and time point on the x axis, and alphabetically on the y axis.
 
 ```{r}
-# load pteridine transcripts 
+# get only the sample info I want:
+samples2 <- samples[,c(1,6)]
+
+# load pteridine transcripts, which I've made and put in a spreadsheet
 pterinfo <- read.csv("heatmapdocs/pteridinegenes.csv")
 pterinfo <- pterinfo[,-1]
 
-
+# extract the data from the population model
 pterdf  <- sopop$obs_norm[sopop$obs_norm$target_id %in% pterinfo$target_id, ]
+# append group info (ie, pop x time)
 pterdf <- dplyr::left_join(pterdf, samples2, by = "sample")
+# append data from sleuth model
 pterdf <- dplyr::left_join(pterdf, pterinfo, by = "target_id")
+
+# make a new df, then take the offset log of the counts
 logpterdf <- pterdf
 logpterdf$est_counts <- log(pterdf$est_counts + 1)
 
@@ -722,7 +747,7 @@ ggsave("heatmapdocs/pteridineheatmapmodifiedsleuthcode.png", width = 8.84, heigh
 ggplot(logpterdf, aes(sample, ptergenes)) +
   geom_tile(aes(fill = est_counts), color = "white") +
   scale_fill_gradient(low = "red3", high = "yellow") +
-  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Iridophore genes") +
+  scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Pteridine genes") +
   theme(legend.title = element_text(size = 10),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=16),
