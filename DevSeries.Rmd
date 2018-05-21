@@ -353,6 +353,26 @@ pop_wt_results <- sleuth_results(sopop, '(Intercept)', test_type = "wt", which_m
 
 Looks like there are 8,744 significant transcripts (q val < 0.05) between the populations here.
 
+```{r}
+locality <- samples$locality
+
+notime_design <- model.matrix(formula( ~ locality + ns(week, df = 3):locality +lane))
+notimeorpop_design <- model.matrix(formula( ~ ns(week, df = 3):locality +lane))
+
+new_so <- sleuth_prep(samples,  num_cores = 6, target_mapping = anno)
+
+new_so <- sleuth_fit(new_so, formula = notime_design, fit_name = "notime")
+new_so <- sleuth_fit(new_so, formula = notimeorpop_design, fit_name = "notimepop")
+
+models(new_so)
+newso_lrt <- sleuth_lrt(new_so, "notime", "notimepop")
+newso_lrt_results <- sleuth_results(newso_lrt, 'notime:notimepop', test_type = 'lrt')
+table(newso_lrt_results[,"qval"] < 0.05) 
+
+## THS TABLE IS ALL NAS! BLERGH.
+```
+
+
 
 ```{r, eval = FALSE}
 
@@ -402,7 +422,7 @@ table(nointer_lrt_results[,"qval"] < 0.05) ### Produces an NA table
 
 
 
-locality <- samples$locality
+
 
 full2_design <- model.matrix(formula( ~ ns(week, df = 3) + locality +lane))
 nopop2_design <- model.matrix(formula( ~ ns(week, df = 3) + lane))
@@ -743,11 +763,13 @@ ggplot(logpterdf, aes(sample, ptergenes)) +
   labs(fill = "Expression level")
 ggsave("heatmapdocs/pteridineheatmapmodifiedsleuthcode.png", width = 8.84, height = 6.45)
 
+ptertranscripts <- pterinfo[order(pterinfo$target_id),]
 
-ggplot(logpterdf, aes(sample, ptergenes)) +
+ggplot(logpterdf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
   scale_fill_gradient(low = "red3", high = "yellow") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Pteridine genes") +
+  scale_y_discrete(labels = ptertranscripts$ptergenes) +
   theme(legend.title = element_text(size = 10),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=16),
@@ -771,10 +793,14 @@ meldf <- dplyr::left_join(meldf, melinfo, by = "target_id")
 logmeldf <- meldf
 logmeldf$est_counts <- log(meldf$est_counts + 1)
 
-ggplot(logmeldf, aes(sample, mel_gene_name)) +
+meltranscripts <- melinfo[order(melinfo$target_id),]
+
+
+ggplot(logmeldf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
   scale_fill_gradient(low = "red3", high = "yellow") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Melanic genes") +
+  scale_y_discrete(labels = meltranscripts$mel_gene_name) +
   theme(legend.title = element_text(size = 10),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=16),
@@ -795,10 +821,13 @@ irdf <- dplyr::left_join(irdf, irinfo, by = "target_id")
 logirdf <- irdf
 logirdf$est_counts <- log(irdf$est_counts + 1)
 
-ggplot(logirdf, aes(sample, iridophore_gene_name)) +
+irtranscripts <- irinfo[order(irinfo$target_id),]
+
+ggplot(logirdf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
   scale_fill_gradient(low = "red3", high = "yellow") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Iridophore genes") +
+  scale_y_discrete(labels = irtranscripts$iridophore_gene_name) +
   theme(legend.title = element_text(size = 10),
         legend.text = element_text(size = 12),
         plot.title = element_text(size=16),
@@ -812,7 +841,4 @@ ggsave("heatmapdocs/iridophoreheatmap.png", width = 8.84, height = 6.45)
 ```
 
 
-```{r}
 
-  
-```
