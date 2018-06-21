@@ -767,7 +767,7 @@ ptertranscripts <- pterinfo[order(pterinfo$target_id),]
 
 ggplot(logpterdf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
-  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_fill_gradient(low = "yellow", high = "red3") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Pteridine genes") +
   scale_y_discrete(labels = ptertranscripts$ptergenes) +
   theme(legend.title = element_text(size = 10),
@@ -798,7 +798,7 @@ meltranscripts <- melinfo[order(melinfo$target_id),]
 
 ggplot(logmeldf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
-  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_fill_gradient(low = "yellow", high = "red3") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Melanic genes") +
   scale_y_discrete(labels = meltranscripts$mel_gene_name) +
   theme(legend.title = element_text(size = 10),
@@ -825,7 +825,7 @@ irtranscripts <- irinfo[order(irinfo$target_id),]
 
 ggplot(logirdf, aes(sample, target_id)) +
   geom_tile(aes(fill = est_counts), color = "white") +
-  scale_fill_gradient(low = "red3", high = "yellow") +
+  scale_fill_gradient(low = "yellow", high = "red3") +
   scale_x_discrete(labels = sort(group)) + ylab("Genes ") + xlab("") + labs(title = "Iridophore genes") +
   scale_y_discrete(labels = irtranscripts$iridophore_gene_name) +
   theme(legend.title = element_text(size = 10),
@@ -840,5 +840,21 @@ ggsave("heatmapdocs/iridophoreheatmap.png", width = 8.84, height = 6.45)
 
 ```
 
+I want to make a nice PCA without the 'outlier' that seems to be skewing the view.
 
+```{r}
+samples_drop <- dplyr::filter(samples, sample != "S2-8")
+so_drop <- sleuth_prep(samples_drop, num_cores = 6) 
+
+plot_pca(so_drop, units = "tpm", point_size = 0.001) + geom_point() + aes(size = 3, colour = samples_drop$locality, shape = factor(samples_drop$week)) + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+# save the pca to local disk
+ggsave("pca-subsamp-spline-tpm-no-outlier.pdf")
+ggsave("pca-subsamp-spline-tpm-no-outlier.tiff", width = 6.81, height = 3.99)
+
+plot_pca(so_drop, point_size = 0.001) + geom_point() + aes(size = 3, colour = samples_drop$locality, shape = factor(samples_drop$week)) + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15,16,17,18), guide = guide_legend(title = "Timepoint (weeks)", override.aes = list(size=4))) + guides(size=FALSE)
+
+ggsave("pca-subsamp-spline-no-outlier.pdf")
+ggsave("pca-subsamp-spline-no-outlier.tiff", width = 6.81, height = 3.99)
+```
 
