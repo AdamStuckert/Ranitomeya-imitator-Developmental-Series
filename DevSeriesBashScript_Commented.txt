@@ -128,3 +128,19 @@ awk '{print $2}' tmp.txt > unirefs
 printf " ################################################ \n \
 ########### You did it! Great work! ############ \n \
 ################################################ \n"
+
+
+# why don't we have mc1r?
+cd ~/mc1r_seqs #contains sequences from Ranitomeya imitator and Oophaga histrionica
+cat * > all_mc1r_seqs.fa
+
+  makeblastdb -in all_mc1r_seqs.fa -dbtype nucl -parse_seqids	
+
+# move in to the appropriate folder and run blast
+cd /home/summersk/Developmental_series
+blastn -db /home/summersk/mc1r_seqs/all_mc1r_seqs.fa -query subsamp.imitator.merged.fasta -out mc1r_query -outfmt 6 -num_threads 12
+sort mc1r_query -k 1,1 -k11,11g | sort -u -k 1,1 --merge > mc1r_tophit.txt
+
+# search by the transcript id...
+seqs=$(awk '{print $1}' mc1r_tophit.txt)
+for i in $seqs; do grep $i subimiallpep_tophit.txt; done
