@@ -93,10 +93,10 @@ printf " ################################################ \n \
 #### Annotation with diamond to amphibian (xenopus, nanorana, rana peptides) + UniRef90 databases
 
 # cat all peptides together 
-cat GCA_002284835.2_RCv2.1_protein.faa Nanorana_parkeri.gene.v2.pep uniref90.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
+cat GCA_002284835.2_RCv2.1_protein.fa Nanorana_parkeri.gene.v2.pep.fa uniref90_Sept2018.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
 
 # Make the diamond index  
-diamond makedb --in all_peptides.fa -d allpep
+diamond makedb --in all_peptides.fa -d allpep &
 
 # Diamond mapping
 diamond blastx -d /home/summersk/peptide_databases/allpep.dmnd -q subsamp.imitator.merged.fasta -o subimi2allpep.m8 --threads 16
@@ -111,6 +111,7 @@ diamond blastx -d /home/summersk/peptide_databases/xen.dmnd -q subsamp.imitator.
 
 # sort by top hit
 sort subimi2xen.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimixen_tophit.txt
+# 35014 queries aligned
 
 sort subimi2allpep.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
 
@@ -118,6 +119,21 @@ sort subimi2allpep.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiallpep_to
 # UniRef90 hits:
 grep "UniRef90_" subimiallpep_tophit.txt > tmp.txt
 awk '{print $2}' tmp.txt > unirefs
+
+
+# Just uniref mapping:
+
+# Make the diamond index  
+diamond makedb --in uniref90.fa -d unirefs
+
+# Diamond mapping
+diamond blastx -d /home/summersk/peptide_databases/unirefs.dmnd -q subsamp.imitator.merged.fasta -o subimi2uniref.m8 --threads 16
+
+# Data: Total time = 2101.9s; Reported 926134 pairwise alignments, 926134 HSP; 40689 queries aligned.
+
+# sort by top hit
+sort subimi2uniref.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiuniref_tophit.txt
+
 
 # Use this to download the uniref90 hits via the website. Use IDs to get details, only taking the "reviewed" SwissProt hits!
 
