@@ -1,4 +1,4 @@
-#!/bin/bash
+-#!/bin/bash
 
 ###################################################
 ###Bash script for developmental series analysis###
@@ -42,9 +42,7 @@ cp /home/summersk/Developmental_series/orthofuse/subsamp/merged/merged/good.merg
 # Rename all the transcripts, largely for aesthetics...
 awk '/^>/{print ">Transcript_" ++i; next}{print}' good.merged.fasta > subsamp.imitator.merged.fasta
 
-# verify the 'good' transcripts isn't a bad idea
-python /home/summersk/programs/busco/scripts/run_BUSCO.py -i subsamp.imitator.merged.fasta -m transcriptome --cpu 24 -l /home/summersk/busco_dbs/eukaryota_odb9 -o good_busco
-
+# Total transcripts: 88,182
 
 printf " ################################################ \n \
 ######### Trim and clean other reads ########### \n \
@@ -104,21 +102,20 @@ diamond blastx -d /home/summersk/peptide_databases/allpep.dmnd -q subsamp.imitat
 # sort by top hit
 sort subimi2allpep.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
 
-## This approach yields 50.7% annotation rate
-
 # I will also annotate just to xenopus, in case that makes a difference for pulling out gene names
 diamond blastx -d /home/summersk/peptide_databases/xen.dmnd -q subsamp.imitator.merged.fasta -o subimi2xen.m8 --threads 16
 
 # sort by top hit
 sort subimi2xen.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimixen_tophit.txt
-# 35014 queries aligned
+
 
 sort subimi2allpep.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
-
+# 40,858 queries aligned
+# 46.3% annotation rate
 
 # UniRef90 hits:
 grep "UniRef90_" subimiallpep_tophit.txt > tmp.txt
-awk '{print $2}' tmp.txt > unirefs
+awk '{print $2}' tmp.txt > allpep_unirefs
 
 
 # Just uniref mapping:
@@ -133,7 +130,8 @@ diamond blastx -d /home/summersk/peptide_databases/unirefs.dmnd -q subsamp.imita
 
 # sort by top hit
 sort subimi2uniref.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiuniref_tophit.txt
-
+# 40,689 queries aligned
+# 46.1% annotation rate
 
 # Use this to download the uniref90 hits via the website. Use IDs to get details, only taking the "reviewed" SwissProt hits!
 
@@ -160,3 +158,61 @@ sort mc1r_query -k 1,1 -k11,11g | sort -u -k 1,1 --merge > mc1r_tophit.txt
 # search by the transcript id...
 seqs=$(awk '{print $1}' mc1r_tophit.txt)
 for i in $seqs; do grep $i subimiallpep_tophit.txt; done
+
+
+
+
+## Get uniprot KB IDs from Uniref90 IDs
+
+for i in $(cat allpep_unirefs)
+do
+grep $i /home/summersk/peptide_databases/uniref2uniprotkb.txt >> uniprotkbs.txt
+done 
+
+
+## NOTE: THIS WOULD BE WAY FASTER IN R
+
+??Add a header to the uniref2uniprotkb file?
+echo uniref_ids > tmp
+cat allpep_unirefs >> tmp
+mv tmp allpep_unirefs
+
+printf "uniref_ids \t uniprotKBs \n" tmp
+cat uniref2uniprotkb >> tmp
+
+
+R
+library(dplyr)
+library(data.table)
+ids <- fread("allpep_unirefsforR", header = TRUE)
+kbs <- fread("/home/summersk/peptide_databases/uniref2uniprotkbforR.txt", header = TRUE)
+
+
+head(ids)
+head(kbs)
+
+new <- dplyr::left_join(ids, kbs, by = "uniref_ids")
+
+write.table(new, "uniprotkblist.tsv", sep = "\t")
+
+q()
+
+
+
+
+###TRYING WITHOUT BULLFROG
+
+# cat all peptides together 
+zcat Nanorana_parkeri.gene.v2.pep.fa.gz uniref90_Sept2018.fasta.gz Xenopus_tropicalis.JGI_4.2.pep.all.fa.gz > all_peptides_nobull.fa
+
+# Make the diamond index  
+diamond makedb --in all_peptides_nobull.fa -d allpepnobull 
+
+# Diamond mapping
+diamond blastx -d /home/summersk/peptide_databases/allpepnobull.dmnd -q subsamp.imitator.merged.fasta -o subimi2allpepnobull.m8 --threads 16
+
+# sort by top hit
+sort subimi2allpep.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
+
+
+# 40854 queries aligned
