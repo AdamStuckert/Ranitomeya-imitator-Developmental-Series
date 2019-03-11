@@ -155,4 +155,8 @@ q()
 awk 'BEGIN{FS="\t"}{printf("%s\t%s\n", $1, $9)}' idmapping_selected.tab > NEWANNOTATION.txt
 awk '{print $1}' NEWANNOTATION.txt > accessions.txt
 
+grep "UniRef90" imi_allann_tophit.txt | awk '{printf("%s\t%s\n", $1, $2)}' > uniref_transcripts_Mar2019.txt
+awk '{print $2}' uniref_transcripts_Mar2019.txt > uniref_IDS_Mar2019.txt
+
+
 # query accessions.txt at https://www.uniprot.org/mapping/ with UniProtKB AC/ID to Gene name
