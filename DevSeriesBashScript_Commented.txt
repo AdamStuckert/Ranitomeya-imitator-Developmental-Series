@@ -149,3 +149,10 @@ new <- dplyr::left_join(ids, kbs, by = "uniref_ids")
 write.table(new, "uniprotkblist.tsv", sep = "\t")
 
 q()
+
+
+
+awk 'BEGIN{FS="\t"}{printf("%s\t%s\n", $1, $9)}' idmapping_selected.tab > NEWANNOTATION.txt
+awk '{print $1}' NEWANNOTATION.txt > accessions.txt
+
+# query accessions.txt at https://www.uniprot.org/mapping/ with UniProtKB AC/ID to Gene name
