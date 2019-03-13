@@ -4,6 +4,9 @@ In this project, we attempt to examine genes that contribute to the production o
 
 Transcriptome assembly, read cleaning, and transcript expression quantification is all done in bash. Subsequent differential gene expression analyses are in the R markdown files.
 
+
+![alt text](https://drive.google.com/open?id=1ECHHSDTb5SEqopsVqDCdmdvyBslaztOO)
+
 ## General workflow
 
 We assembled a *de novo* transcriptome and annotated it. Subsequently we cleaned and trimmed individual reads and mapped each sample to the assembled transcriptome. After this, we conducted differential expression analyses to examine changes in gene expression over time and between color morphs. Additionally, we examined genomic variants by calling SNPs, and looked at fixed differences between color morphs. Finally, we conducted statistical overrepresentation analyses in Panther (no code for that here, but we have included the list of genes we loaded into Panther). Finally, we produced figures and tables.
