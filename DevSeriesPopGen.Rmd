@@ -1,0 +1,271 @@
+---
+title: "Imitator Developmental Series genetic variants analysis"
+author: "Adam Stuckert"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+# load packages required for analyses
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+
+library(data.table)
+library(dplyr)
+#memory.limit(3000000)
+```
+
+#### Background ####
+Analyzing genetic variants from RNAseq data across color morphs of R. imitator. Initial analyses were conducted in ANGSD.
+
+
+
+Find SNP data from all four color morphs and iterate through to place it in a single dataframe.
+
+```{r}
+# List all the maf files from ANGSD
+mafs <- list.files(pattern = "*.mafs")
+
+  if (exists("SNP_df")){
+    rm(SNP_df)
+  }
+
+for (dataset in mafs){
+  name <- gsub(dataset, pattern = "_calling.mafs", replacement = "")
+  name <- gsub(name, pattern = "angsd_", replacement = "")
+  print(paste0("Currently working with data from: ", name))
+
+ 
+  if (exists("SNP_df")){
+    data <- fread(dataset)
+    data <- as.data.frame(data)
+    data <- data[,c("chromo", "position", "major", "minor", "anc", "knownEM")]
+    colnames(data) <- c("contig", "position", paste0(name,"_major"), paste0(name,"_minor"), paste0(name,"_ancestral"), paste0(name, "_minor_frequency"))
+    #data <- data[,2]
+    #SNP_df <- cbind(SNP_df, data)
+    SNP_df <- dplyr::left_join(SNP_df, data, by = c("contig" = "contig", "position" = "position"))
+    colnames(SNP_df)[ncol(SNP_df)] <- paste0(name, "_minor_frequency")
+  } else {
+    data <- fread(dataset)
+    data <- as.data.frame(data)
+    data <- data[,c("chromo", "position", "major", "minor", "anc", "knownEM")]
+    SNP_df <- data
+    colnames(SNP_df) <- c("contig", "position", paste0(name,"_major"), paste0(name,"_minor"), paste0(name,"_ancestral"), paste0(name, "_minor_frequency"))
+  }
+  colnames(SNP_df)[1] <- "contig"
+  
+  # clean workspace by removing temporary files
+  rm(data, dataset, name)
+}
+
+
+# basic stats, total #SNPs
+num_SNPs <- length(SNP_df$contig)
+print(paste0("Total number of SNPs: ", num_SNPs))
+
+# basic stats, unique contigs with a SNP
+num_contigs <- length(unique(SNP_df$contig))
+print(paste0("Total number of contigs with a SNP: ", num_contigs))
+
+```
+
+Extract only SNPs that are fixed in at least one color morph.
+
+```{r}
+# Find all SNPs that are fixed in at least one population
+fixed_SNPs <- SNP_df %>% dplyr::filter(Huallaga_minor_frequency == 1 | Sauce_minor_frequency == 1 | Tarapoto_minor_frequency == 1 | Varadero_minor_frequency == 1)
+
+# basic stats, number of SNPs fixed in at least one population
+num_fixed_SNPs <- length(fixed_SNPs$contig)
+print(paste0("Number of SNPs fixed in at least one color morph: ", num_fixed_SNPs))
+
+# basic stats, number of contigs with a SNP fixed in at least one population
+num_fixed_contigs <- length(unique(fixed_SNPs$contig))
+print(paste0("Number of unique contigs with a SNP fixed in at least one color morph: ", num_fixed_contigs))
+
+```
+
+
+Import annotation documents.
+  
+```{r}
+# impor annotations
+annos <- fread("imitator_annotations_xenann.tsv", sep = "\t")  
+#annos <- annos[,-1]
+colnames(annos)[1] <- "contig"
+#annos <- annos[!duplicated(annos$contig),]
+
+# remove some columns
+annos <- annos[,-c(2,3)]
+
+# join dataframes
+annos_fixeds <- dplyr::left_join(fixed_SNPs, annos, by = "contig")
+
+
+
+# Import a priori candidate color gene database
+colors <- read.csv("color_genes.csv")
+colnames(colors)[1] <- "gene_name"
+# Make them all lower case...
+colors$gene_name <- tolower(colors$gene_name)
+
+
+# search for fixed color genes
+fixed_colors <- annos_fixeds %>% filter(gene_name %in% colors$gene_name ) 
+
+write.csv(fixed_colors, "imitator_fixed_SNPs_colorgenes.csv", row.names = FALSE)
+
+```
+
+What are the basic statistics of fixed SNPs? How many color genes? How does this compare to the number of fixed SNPs on a transcriptome wide level?
+
+```{r}
+# basic stats, number of SNPs fixed in at least one color morph 
+num_SNPs <- length(annos_fixeds$contig)
+print(paste0("Number of SNPs fixed in at least one color morph: ", num_SNPs))
+
+# basic stats, number of unique genes with a fixed SNP in at least one color morph 
+num_gene_SNPs <- length(unique(annos_fixeds$gene_name))
+print(paste0("Number unique genes with a fixed SNP in at least one color morph: ", num_gene_SNPs))
+
+# basic stats, number of SNPs fixed in at least one color morph on a color gene
+num_color_SNPs <- length(fixed_colors$gene_name)
+print(paste0("Number of fixed SNPs in a color gene in at least one color morph: ", num_color_SNPs))
+
+# basic stats, number of contigs with a SNP fixed in at least one morph
+num_color_genes <- length(unique(fixed_colors$gene_name))
+print(paste0("Number of unique genes with a SNP fixed in at least one color morph: ", num_color_genes))
+
+# count data for each SNP:
+color_SNP_counts <- dplyr::count(fixed_colors, gene_name)
+
+write.csv(color_SNP_counts, "imitator_colorgene_SNP_counts.csv", row.names = FALSE)
+
+
+```
+
+Hmmm...how many unique genes are there in total?
+
+```{r}
+total_SNPS <- dplyr::left_join(SNP_df, annos, by = "contig")
+unique_genes_overall <- length(unique(total_SNPS$gene_name))
+print(paste0("Total number of unique genes with a SNP: ", unique_genes_overall))
+```
+
+How many unique genes with a fixed SNPS are on a gene relative to the overall number of genes with SNPs?
+
+```{R}
+# Proportion of genes with a fixed SNP:
+print(paste0("Proportion of genes that have a fixed SNP in a color morph relative to the number of unique genes with a SNP: ", ( num_gene_SNPs / unique_genes_overall)))
+
+
+```
+
+How many unique color genes with a fixed SNPS are on a gene relative to the overall number of genes with SNPs?
+
+```{R}
+# Proportion of genes with a fixed SNP:
+print(paste0("Proportion of genes that have a fixed SNP in a color morph relative to the number of unique genes with a SNP: ", ( num_color_genes / unique_genes_overall)))
+
+
+```
+
+What is the relative proportion of the SNPs on a color gene?
+
+```{r}
+prop_snps <- (num_color_SNPs / num_SNPs)
+print(paste0("Proportion of fixed SNPs on a color gene: ", prop_snps))
+```
+
+What is the relative proportion of color genes with a SNP to all genes with a fixed SNP?
+
+```{r}
+prop_color_genes <- (num_color_genes / num_gene_SNPs)
+print(paste0("Proportion of unique genes with fixed SNPs: ", prop_color_genes))
+```
+
+OK, so not a high proportion of color genes. But, what is the expectation here? Many genes are not going to be involved in color, maybe by far the majority. So, if we consider the relative proportion of color genes and then adjust our SNP data for that what do we see?
+
+```{r}
+# What is the proportion of genes in our transcriptome that are color genes?
+# unique genes in the 'ome
+unique_ome <- length(unique(annos$gene_name))
+print(paste0("Number of color genes in our transcriptome: ", unique_ome))  ### IS THIS RIGHT???? CANT BE!
+
+# number of a priori candidate color genes
+total_colors <- length(unique(colors$gene_name))
+print(paste0("Number of unique genes in our transcriptome: ", total_colors))
+
+# proportion of genes in the 'ome that are 'color genes'
+prop_colors <- (total_colors / unique_ome)
+print(paste0("Proportion of genes that are a priori candidate color genes in our transcriptome: ", prop_colors))
+
+```
+
+Is the number of unique color genes actually statistically significant? Test done with Chi-square.
+
+```{R}
+### define the chisquare table
+chidat.genes <- as.table(c(num_color_genes, (num_gene_SNPs - num_color_genes)))
+dimnames(chidat.genes) <- list(c("color genes", "non color genes"))
+
+# chi square test
+chi.genes <- chisq.test(chidat.genes)
+
+print(paste0("Chi-squared test for unique color genes relative to unique genes with fixed SNPs: ", chi.genes$p.value))
+
+chidat.genes
+```
+
+
+Is the number of fixed color gene SNPs actually statistically significant? Test done with Chi-square.
+
+```{R}
+### define the chisquare table
+chidat.snps <- as.table(c(num_color_SNPs, (num_SNPs - num_color_SNPs)))
+dimnames(chidat.snps) <- list(c("color gene SNPs", "non color gene SNPs"))
+
+chi.snps <- chisq.test(chidat.snps)
+
+print(paste0("Chi-squared test for fixed SNPS on color genes relative to total number of fixed SNPS: ", chi.snps$p.value))
+
+chidat.snps
+```
+
+So these are highly significant, but also I'm applying this to a largish proportion of the transcriptome. How about adding a correction for this? First the overall fixed SNPS.
+
+```{R}
+### define the chisquare table
+corrected_noncolorSNPs <- ((num_SNPs - num_color_SNPs) * prop_colors)
+chidat.snps.corr <- as.table(c(num_color_SNPs, corrected_noncolorSNPs))
+dimnames(chidat.snps.corr) <- list(c("color SNPs", "non color SNPs"))
+
+# chi square test
+chisnp.corr <- chisq.test(chidat.snps.corr)
+
+print(paste0("Chi-squared test for fixed SNPs on color genes relative to total number of fixed SNPs: ", chisnp.corr$p.value))
+
+chisnp.corr
+
+chidat.snps.corr
+```
+
+Next, the number of color genes vs unique genes.
+
+```{R}
+### define the chisquare table
+corrected_noncolors <- ((num_gene_SNPs - num_color_genes) * prop_colors)
+chidat.genes.corr <- as.table(c(num_color_genes, corrected_noncolors))
+dimnames(chidat.genes.corr) <- list(c("color genes", "non color genes"))
+
+chiqenes.corr <- chisq.test(chidat.genes.corr)
+print(paste0("Chi-squared test for unique color genes relative to unique genes with fixed SNPs: ", chiqenes.corr$p.value))
+
+chiqenes.corr
+
+chidat.genes.corr
+```
+
+
+

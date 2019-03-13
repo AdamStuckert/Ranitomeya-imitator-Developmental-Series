@@ -1,0 +1,474 @@
+---
+title: "Untitled"
+author: "Adam Stuckert"
+date: "January 2, 2019"
+output: html_document
+---
+
+Load preliminary stuff:
+
+```{r}
+library(dplyr)
+library(sleuth)
+library(data.table)
+library(ggplot2)
+library(paletteer)
+# load files from DE analysis
+base_dir <- getwd()
+sample_id <- dir(file.path(base_dir, "kallisto_quants"))
+kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
+samples <- read.table("devel-sleuth-full.txt", header = TRUE)
+samples <- samples[order(samples$sample),]
+group <- factor(paste(samples$locality,samples$week,sep="_"))
+samples <- cbind(samples,group=group)
+samples <- dplyr::mutate(samples, path = kal_dirs)
+
+sog <- sleuth_load("sleuth_genes_time_xenann.so")
+sogpop <- sleuth_load("sleuth_genes_pop_xenann.so")
+
+
+gpop_lrt_colors <- read.csv("gpop_lrt_colors.csv")
+glrt_colors <- read.csv("glrt_colors.csv")
+
+samples2 <- samples[,c(1,6)] 
+
+# pull in the annotation information.
+### Load the annotation data
+annos <- fread("imitator_annotations_xenann.tsv", sep = "\t")
+
+colnames(annos)[1] <- "target_id"
+```
+
+
+
+```{r}
+
+# load specific color genes for wnt3a pathway:
+wnt_genes <- c("wnt3", "mitf", "lef1", "tyr", "tyrp1", "sox9", "sox10", "dct")
+
+# get the appropriate target IDs
+annos$gene_name <- tolower(annos$gene_name)
+wnts <- annos[annos$gene_name %in% wnt_genes, ]
+wnts <- wnts[,c(2,4)]
+colnames(wnts)[1] <- "target_id"
+
+#make all the genes lower case!
+sogpop[["obs_norm"]][["target_id"]] <- tolower(sogpop[["obs_norm"]][["target_id"]])
+
+wnt_df  <- sogpop$obs_norm[sogpop$obs_norm$target_id %in% wnt_genes, ]
+
+sample_data <- samples[,c(1,2,3,6)]
+
+# append group info (ie, pop x time)
+wnt_df <- dplyr::left_join(wnt_df, sample_data, by = "sample") 
+
+# make a new df, then take the offset log of the counts
+log_wnt_df <- wnt_df
+log_wnt_df$log_tpm <- log(log_wnt_df$tpm + 1)
+
+########## heatmap attempts Sept 25 2018
+# get the average expression per gene by group
+simp_wnt_df <- wnt_df %>% group_by(group, target_id) %>% summarise(mean_tpm = mean(tpm))
+
+#make it a matrix
+### DELETE BELOW???? ###
+# simp_wnt_df <- data.frame(simp_wnt_df[,-1], row.names=simp_wnt_df[,1])
+# simp_wnt_df <- simp_wnt_df[,c(1,3,2)]
+
+new <- tidyr::spread(simp_wnt_df, "group", "mean_tpm")
+new <- as.matrix(new)
+#new <- data.frame(new[,-1], row.names=new[,1])
+write.csv(new, "simiplifed_data_for_heatmap.csv", row.names = FALSE)
+new <- read.table("simiplifed_data_for_heatmap.csv", sep = ",", row.names = 1, header = TRUE)
+newdf <- new
+new <- as.matrix(new)
+
+#new1 <- new[,c(1,5,9,13,2,6,10,14,3,7,11,15,4,8,12,16)]
+
+
+heatmap(new, Colv = NA, Rowv = NA, col = heat.colors(256), legend = "col") #, main = "Genes differentially expressed between populations")
+
+# heatmap(new, Colv = NA, Rowv = NA, col = brewer.pal(9, "YlOrRd"), legend = "col")
+
+
+
+# heatmap.2(new, Colv = NA, Rowv = NA, col = rev(heat.colors(256)), density.info = "none", trace = "none")
+
+
+# make one with ggplot instead
+
+ggplot(simp_wnt_df, aes(x = group, y = target_id)) +
+  geom_tile(aes(fill = mean_tpm), color = "white") +
+  scale_fill_gradient(low = "yellow", high = "firebrick3") +
+  scale_x_discrete() + ylab("Genes ") + xlab("") + labs(title = "Differentially expressed genes across color morphs") +
+  #scale_y_discrete(labels = gene_info$full_gene_name) +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "TPM")
+
+
+# ggsave("heatmapdocs/populationheatmap.png", width = 8.84, height = 6.45)
+
+# what about making it log expression of tpm?
+simp_wnt_df$log_tpm <- log(simp_wnt_df$mean_tpm)
+
+log_wnt_plot <- ggplot(simp_wnt_df, aes(x = group, y = target_id)) +
+  geom_tile(aes(fill = log_tpm), color = "white") +
+  scale_fill_gradient(low = "yellow", high = "red") +
+  scale_x_discrete() + ylab("Genes ") + xlab("") + labs(title = "Wnt3a signalling pathway genes") +
+  #scale_y_discrete(labels = gene_info$full_gene_name) +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Log expression level")
+
+log_wnt_plot
+```
+
+
+
+```{r}
+
+
+log_wnt_plot <- ggplot(simp_wnt_df, aes(x = group, y = target_id)) +
+  geom_tile(aes(fill = log_tpm), color = "white") +
+     scale_fill_gradient(low = "#F7D03CFF", high = "#CF4446FF") +
+  scale_x_discrete() + ylab("Genes ") + xlab("") + labs(title = "Wnt3a signalling pathway genes") +
+  #scale_y_discrete(labels = gene_info$full_gene_name) +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Log expression level")
+
+log_wnt_plot
+
+
+# scale_fill_manual(values=rev(brewer.pal(7,"YlGnBu")),na.value="grey90")+
+  # scale_color_paletteer_d(nord, aurora)
+  
+
+paletteer_c(viridis, inferno, 10)
+```
+
+What if I don't make a heatmap but instead I make a multipanel figure showing expression levels?
+
+```{R}
+
+# get the wnt pathway genes I want here: 
+unique_wnts <- unique(wnt_df$target_id)
+wnt_figs <- character()
+
+################# LEAVING OFF HERE, FIX THE FIGURES, MAYBE WITH ONE OF THE WNT_DFS??? 
+### PROBABLY LOG_WNT_DF
+wnt_samples <- samples[,c(1,2,3)]
+# dir.create("wnt3a_pathway_figures")
+wnt_data <- data.frame()
+for (i in 1:length(unique_wnts)){
+  gene <- unique_wnts[i]
+  #qval <- gpop_lrt_colors[i,"qval"]
+  tmp <- log_wnt_df %>% dplyr::filter(target_id == gene)  
+  tmp
+  
+ # tmp <- dplyr::left_join(tmp, wnts, by = "target_id")
+  
+a <- ggplot(tmp, aes(x=week, y=log(tpm))) + geom_point(aes(size = 2.5, color = locality, shape = locality)) +  geom_smooth(color = "gray40") + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=5))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Population", override.aes = list(size=5))) + ggtitle(paste0(gene)) + guides(size=FALSE) + theme_bw()
+ 
+# name this fig and make a vector of the names so I can ggplot them together
+fig_name <- paste0(gene, "_fig")
+assign(fig_name, a)
+wnt_figs <- c(wnt_figs, fig_name)
+
+  ggsave(paste0("wnt3a_pathway_figures/", gene, ".png"), width = 6.81, height = 3.99)
+}
+
+rm(gene)
+figs <- ls(pattern = "_fig")
+rm(list = figs)
+rm(figs)
+```
+
+Now produce a multipanel figure:
+
+```{R}
+# log_wnt_df$target_id <- as.factor(log_wnt_df$target_id)
+facet_theme <- theme(text = element_text(size = 17), plot.background = element_rect(fill = "white"), panel.background = element_rect(fill = "white"), panel.grid = element_line(colour = "gray90"), panel.border = element_rect(colour = "black", fill = NA), legend.key = element_blank()) 
+
+a <- ggplot(log_wnt_df, aes(x=week, y=log(tpm))) + geom_point(aes(size = 2.5, color = locality, shape = locality)) + geom_smooth(method = "loess", color = "gray40") + facet_wrap( ~ target_id, scales = 'free_y') + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Color morph", override.aes = list(size=6))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Color morph", override.aes = list(size=6)))  + guides(size=FALSE) + facet_theme
+# a <- a + facet_grid(rows = var(log_wnt_df$target_id))
+a
+
+ggsave("wnt3a_pathway_figures/CombinedWntGenes.png", width = 12.800, height = 6.800, dpi = 600)
+
+
+# , guide_legend(title = "Population", 
+```
+
+Do the same with some pteridine genes:
+
+```{R}
+# create list of pteridine genes
+pter_genes <- c("atpif1", "dhfr", "fpgs", "mthfd1", "mthfs", "ovca2", "qdpr", "spr", "xdh")
+# get the appropriate target IDs
+annos$full_gene_name <- tolower(annos$full_gene_name)
+pters <- annos[annos$full_gene_name %in% pter_genes, ]
+pters <- pters[,c(2,4)]
+colnames(pters)[1] <- "target_id"
+
+#make all the genes lower case!
+sogpop[["obs_norm"]][["target_id"]] <- tolower(sogpop[["obs_norm"]][["target_id"]])
+
+pter_df  <- sogpop$obs_norm[sogpop$obs_norm$target_id %in% pter_genes, ]
+
+sample_data <- samples[,c(1,2,3,6)]
+
+# append group info (ie, pop x time)
+pter_df <- dplyr::left_join(pter_df, sample_data, by = "sample") 
+
+# make a new df, then take the offset log of the counts
+log_pter_df <- pter_df
+log_pter_df$log_tpm <- log(log_pter_df$tpm + 1)
+
+########## heatmap attempts Sept 25 2018
+# get the average expression per gene by group
+simp_pter_df <- pter_df %>% group_by(group, target_id) %>% summarise(mean_tpm = mean(tpm))
+
+
+# get the wnt pathway genes I want here: 
+unique_pters <- unique(pter_df$target_id)
+pter_figs <- character()
+
+################# LEAVING OFF HERE, FIX THE FIGURES, MAYBE WITH ONE OF THE WNT_DFS??? 
+### PROBABLY LOG_WNT_DF
+pter_samples <- samples[,c(1,2,3)]
+dir.create("pteridine_figures")
+pter_data <- data.frame()
+for (i in 1:length(unique_pters)){
+  gene <- unique_pters[i]
+  #qval <- gpop_lrt_colors[i,"qval"]
+  tmp <- log_pter_df %>% dplyr::filter(target_id == gene)  
+  tmp
+  
+ # tmp <- dplyr::left_join(tmp, wnts, by = "target_id")
+  
+a <- ggplot(tmp, aes(x=week, y=log(tpm))) + geom_point(aes(size = 3, color = locality)) +  geom_smooth(color = "gray40") + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Population", override.aes = list(size=4))) + ggtitle(paste0(gene)) + guides(size=FALSE) + theme_bw()
+
+# name this fig and make a vector of the names so I can ggplot them together
+fig_name <- paste0(gene, "_fig")
+assign(fig_name, a)
+pter_figs <- c(pter_figs, fig_name)
+
+ggsave(paste0("pteridine_figures/", gene, ".png"), width = 6.81, height = 3.99)
+}
+
+rm(gene)
+figs <- ls(pattern = "_fig")
+rm(list = figs)
+rm(figs)
+```
+
+
+Make the pteridines into a multipanel figure:
+
+```{R}
+
+# log_wnt_df$target_id <- as.factor(log_wnt_df$target_id)
+a <- ggplot(log_pter_df, aes(x=week, y=log(tpm))) + geom_point(aes(size = 2.5, color = locality, shape = locality)) + geom_smooth(method = "loess", color = "gray40") + facet_wrap( ~ target_id, scales = 'free_y') + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Color morph", override.aes = list(size=6))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Color morph", override.aes = list(size=6)))  + guides(size=FALSE) + facet_theme
+
+ggsave("pteridine_figures/CombinedPteridineGenes.png", width = 12.800, height = 6.800, dpi = 600)
+
+
+```
+
+Figures for genes DE across populations:
+
+```{R}
+# get only the sample info I want:
+samples2 <- samples[,c(1,6)]
+
+# peptide names
+# load the dataframe saved in the initial Rmd file
+gpop_lrt_colors <- read.csv("gpop_lrt_colors_xenann.csv", header = TRUE)
+
+genes <- gpop_lrt_colors[,c("target_id", "peptide_id")]
+
+gene_df  <- sogpop$obs_norm[sogpop$obs_norm$target_id %in% genes$target_id, ]
+
+# append group info (ie, pop x time)
+gene_df <- dplyr::left_join(gene_df, samples2, by = "sample") 
+
+# add gene symbol
+gene_df <- dplyr::left_join(gene_df, genes, by = "target_id") 
+
+# make a new df, then take the offset log of the counts
+log_gene_df <- gene_df
+log_gene_df$log_tpm <- log(log_gene_df$tpm + 1)
+
+########## heatmap attempts Sept 25 2018
+# get the average expression per gene by group
+simp_gene_df <- gene_df %>% group_by(group, target_id) %>% summarise(mean_tpm = mean(tpm))
+
+# get the wnt pathway genes I want here: 
+unique_genes <- unique(gene_df$target_id)
+gene_figs <- character()
+
+# append sample data to informacion
+gene_samples <- samples[,c(1,2,3)]
+log_gene_df <- dplyr::left_join(log_gene_df, gene_samples, by = "sample")
+
+# make a series of figures:
+dir.create("DE_gene_figures")
+gene_data <- data.frame()
+for (i in 1:length(unique_genes)){
+  gene <- unique_genes[i]
+  #qval <- gpop_lrt_colors[i,"qval"]
+  tmp <- log_gene_df %>% dplyr::filter(target_id == gene)  
+  tmp
+  
+ # tmp <- dplyr::left_join(tmp, wnts, by = "target_id")
+  
+a <- ggplot(tmp, aes(x=week, y=log(tpm))) + geom_point(aes(size = 3, color = locality)) +  geom_smooth(color = "gray40") + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Population", override.aes = list(size=4))) + ggtitle(paste0(gene)) + guides(size=FALSE) + theme_bw()
+ 
+# name this fig and make a vector of the names so I can ggplot them together
+fig_name <- paste0(gene, "_fig")
+assign(fig_name, a)
+gene_figs <- c(gene_figs, fig_name)
+
+ggsave(paste0("DE_gene_figures/", gene, ".png"), width = 6.81, height = 3.99)
+}
+
+rm(gene)
+figs <- ls(pattern = "_fig")
+rm(list = figs)
+rm(figs)
+```
+
+Make the DE genes across color morphs into a multipanel figure:
+
+```{R}
+
+# log_wnt_df$target_id <- as.factor(log_wnt_df$target_id)
+a <- ggplot(log_gene_df, aes(x=week, y=log(tpm))) + geom_point(aes(size = 2.5, color = locality, shape = locality)) + geom_smooth(method = "loess", color = "gray40") + facet_wrap( ~ target_id, scales = 'free_y') + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Color morph", override.aes = list(size=6))) + scale_shape_manual(values=c(15, 16, 17, 18), guide = guide_legend(title = "Color morph", override.aes = list(size=6)))  + guides(size=FALSE) + facet_theme
+
+ggsave("DE_gene_figures/CombinedDEGenes.png", width = 12.800, height = 13.600, dpi = 600)
+
+
+```
+
+
+ 
+Make a venn diagram
+ 
+```{r}
+
+library(VennDiagram)
+
+# import data
+#venn_data <- read.csv("Data4Venn.csv")
+time <- unique(glrt_colors$target_id) # made in DevSeries.Rmd
+pops <- unique(gpop_lrt_colors$target_id)# made in DevSeries.Rmd
+
+color_SNP_counts <- read.csv("imitator_colorgene_SNP_counts.csv")
+venn_SNPs <- unique(color_SNP_counts$gene_name)
+
+# get alphabetized list
+all_genes <- vector()
+all_genes <- c(all_genes, time, pops, venn_SNPs)
+all_genes <- unique(sort(all_genes))
+
+#tbl_data <- data.frame()
+tbl_data <- rbind(all_genes, time) 
+tbl_data <- rbind(tbl_data, pops)
+tbl_data <- rbind(tbl_data, venn_SNPs)
+tbl_data <- as.data.frame(tbl_data)
+tbl_data <- transpose(tbl_data)  
+
+write.csv(tbl_data, "ForTable1.csv", row.names = FALSE)
+
+venn.diagram(
+x = list(time, pops, venn_SNPs),
+category.names = c("DE time" , "DE color morphs" , "SNPs"),
+filename = 'DevSeries_Venn.png',
+  resolution = 600,
+  imagetype = "png",
+  col = "transparent",
+	fill = c("cyan", "blue", "green"),
+	alpha = 0.5,
+	label.col = "black", 
+	cex = 2,
+	fontfamily = "serif",
+	fontface = "bold",
+	cat.default.pos = "text",
+	cat.col = "black",
+	cat.cex = 2,
+	cat.fontfamily = "serif",
+	cat.dist = c(0.06, 0.06, 0.03),
+	cat.pos = 0
+	)
+```
+
+Make a proportional Venn Diagram.
+
+```{R}
+
+library(Vennerable)
+x <- list(time, pops, venn_SNPs)
+Vex <- Venn(x, SetNames = c("DE genes over time", "DE genes between morphs", "SNPs"))
+Vex
+
+plot(Vex, doWeights = TRUE)
+
+# edit the figure to make it look better and save
+Vex <- compute.Venn(Venn(x, SetNames = c("DE genes over time", "DE genes between morphs", "SNPs")))
+gp <- VennThemes(Vex)
+gp[["Face"]][["100"]]$fill <-  "purple" # time
+gp[["Face"]][["010"]]$fill <-  "green" # morphs
+gp[["Face"]][["110"]]$fill <-  "blue" #SNPs
+#png("proportionalvenn.png",  width = 14.63, height = 7.63, units = "in", res = 600)
+plot(Vex, gp = gp)
+#dev.off()
+
+V3.big <- Venn(SetNames = LETTERS[1:3], Weight = 2^(1:8))
+Vmonth2.big <- V3.big[, c(1:2)]
+plot(Vmonth2.big)
+
+```
+
+
+
+Make a table of sample replication.
+
+```{R}
+# collate data
+sample_tbl <- dplyr::count(samples, group)
+
+# print it
+sample_tbl
+
+write.csv(sample_tbl, "SampleTable.csv", row.names = FALSE)
+```
+
+Make a figure for any gene I want to visualize.
+
+```{R}
+# ENTER GENE
+gene = "arfgap1"
+
+sogpop[["obs_norm"]][["target_id"]] <- tolower(sogpop[["obs_norm"]][["target_id"]])
+single_gene_df  <- sogpop$obs_norm[sogpop$obs_norm$target_id %in% gene, ]
+
+single_gene_df <- dplyr::left_join(single_gene_df, gene_samples, by = "sample")
+
+ # tmp <- single_gene_df %>% dplyr::filter(target_id == gene)  
+  
+
+single_gene_fig <- ggplot(single_gene_df, aes(x=week, y=log(tpm))) + geom_point(aes(size = 3, color = locality)) +  geom_smooth(color = "gray40") + facet_wrap( ~ target_id, scales = 'free_y') + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) + guides(size=FALSE) + theme_bw()  
+
+single_gene_fig
+```

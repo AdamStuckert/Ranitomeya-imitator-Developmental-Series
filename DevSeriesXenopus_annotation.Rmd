@@ -1,0 +1,393 @@
+---
+title: "Imitator Developmental Series analysis"
+author: "Adam Stuckert"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+# load packages required for analyses
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+# library(biomaRt)
+library(sleuth)
+library(dplyr)
+library(foreach)
+library(doParallel)
+library(data.table)
+library(splines)
+library(ggthemes)
+library(scales)
+library(gridExtra)
+library("RColorBrewer")
+library(paletteer)
+```
+
+#### Background ####
+This file should be run after This uses the pseudo-quantifications from Kallisto to undergo differential expression analyses. These pseudo-quantification results should be in a folder entitled "kallisto_quants" within the R project folder. 
+
+Print R information so that I can easily pick out information for publication.
+
+```{r}
+sessionInfo()
+```
+
+
+```{r}
+# memory.size() #clearly insu-fucking-ficient 
+
+# 100% only leaving the above in for posterity.
+
+# Jack up the memory alloted to R...this requires quite a bit
+memory.limit(32000000)
+
+# get the directory/path for each sample in this study
+base_dir <- getwd()
+# name of each sample
+sample_id <- dir(file.path(base_dir, "kallisto_quants"))
+# append them to get the location of each samples' quantification
+kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
+# read in a tab-delimited file with information about samples and treatments
+samples <- read.table("devel-sleuth-full.txt", header = TRUE)
+# order them to match up with sample paths
+samples <- samples[order(samples$sample),]
+# combine into a single combined factor
+group <- factor(paste(samples$locality,samples$week,sep="_"))
+# bind this to the sample information dataframe
+samples <- cbind(samples,group=group)
+# append paths to the sample dataframe
+samples <- dplyr::mutate(samples, path = kal_dirs)
+# print to verify everything is copacetic
+# now listen to Local H's "Bound for the floor"
+samples
+
+```
+
+
+```{r}
+# pull in the annotation information.
+### Load the annotation data
+# Import Xenopus information, select only peptides and gene columns, rename them
+x2g <- fread("annotationmappingdocuments/xenpep2gene.tsv", header = FALSE)
+x2g <- x2g[,-1]
+colnames(x2g) <- c("peptide_id", "gene_name")
+
+# Annotation results from the Xenopus annotation
+xen <- read.table("imi_Xen95_tophit.txt", header = FALSE, fill = TRUE)
+colnames(xen)[c(1:12)] <- c("transcript_id", "peptide_id", "percentage_id_matches",
+                              "alignment_length", "number_mismatches", "number_gap_openings",
+                              "query_start", "query_end", "alignment_start", "alignment_end",
+                              "expected_value", "bitscore")
+xen <- xen[,c(1:2,11)]
+
+# merge annotation information with data
+xenpep2gene <- dplyr::left_join(xen, x2g, by = "peptide_id")
+
+colnames(xenpep2gene)[1] <- "target_id"
+
+# make color genes all lower case
+xenpep2gene$gene_name <- tolower(xenpep2gene$gene_name)
+
+# save as a tsv
+write.table(xenpep2gene, "imitator_annotations_xenann.tsv", sep = "\t", row.names = FALSE)
+
+```
+
+Run the model.
+
+```{r}
+# Jack up the memory alloted to R...this requires quite a bit
+memory.limit(32000000)
+
+# get the directory/path for each sample in this study
+base_dir <- getwd()
+# name of each sample
+sample_id <- dir(file.path(base_dir, "kallisto_quants"))
+# append them to get the location of each samples' quantification
+kal_dirs <- sapply(sample_id, function(id) file.path(base_dir, "kallisto_quants", id))
+# read in a tab-delimited file with information about samples and treatments
+samples <- read.table("devel-sleuth-full.txt", header = TRUE)
+# order them to match up with sample paths
+samples <- samples[order(samples$sample),]
+# combine into a single combined factor
+group <- factor(paste(samples$locality,samples$week,sep="_"))
+# bind this to the sample information dataframe
+samples <- cbind(samples,group=group)
+# append paths to the sample dataframe
+samples <- dplyr::mutate(samples, path = kal_dirs)
+# print to verify everything is copacetic
+# now listen to Local H's "Bound for the floor"
+samples
+
+
+#First, prepare the model by building the design; these need to be in numeric format
+week <- samples$week
+week <- as.numeric(week)
+lane <- samples$lane
+spline_design <- model.matrix(formula( ~ ns(week, df = 3) + lane))
+spline_design
+
+
+# Import a priori candidate color gene database
+colors <- read.csv("color_genes.csv")
+colnames(colors)[1] <- "gene_name"
+
+# Prepare the sleuth object again, but this time we are aggregating by gene
+sog <- sleuth_prep(samples,  num_cores = 6, target_mapping = xenpep2gene, aggregation_column = 'gene_name') # changed from "full_peptide_id"
+
+# load the full model, which includes a spline of time + the lane samples were sequenced on
+sog <- sleuth_fit(sog, formula = spline_design, fit_name = "full") # changed from spline_design
+# load the reduced model, this is only the lane samples were sequenced on
+sog <- sleuth_fit(sog, formula = ~ lane, fit_name = "reduced")
+
+# print the models
+models(sog)
+
+# run a likelihood ratio test between the full and reduced models. This basically tests whether the inclusion of the time points explains the data better than the reduced model with just the lane. Transcripts better explained by the inclusion of time should be considered differentially expressed over time. Qvalues are corrected for multiple comparisons.
+sog_lrt <- sleuth_lrt(sog, "reduced", "full")
+
+# save the model results to a data frame
+glrt_results <- sleuth_results(sog_lrt, 'reduced:full', test_type = 'lrt')
+
+# how many transcripts are differentially expressed if we use a cut off of a = 0.05?
+table(glrt_results[,"qval"] < 0.05)
+
+# Make them all lower case...
+colors$gene_name <- tolower(colors$gene_name)
+glrt_results$target_id <- tolower(glrt_results$target_id)
+
+# order results by q value, then filter out only the significant ones
+gsig_results <-  glrt_results[order(glrt_results$qval),]
+gsiggies <- gsig_results[ which(gsig_results$qval < 0.05),]
+
+
+
+
+## search through the results for anything that annotated in the full or uniopus annotation to a color gene
+glrt_colors <- glrt_results %>% filter(target_id %in% colors$gene_name ) #| uni_gene_name %in% colors$gene_name)
+
+## Alphabetize
+glrt_colors <-  glrt_colors[order(glrt_colors$target_id),]
+
+
+# save results to spreadsheets
+glrt_colors <- glrt_colors[!duplicated(glrt_colors$target_id),]
+gsiggies <- gsiggies[!duplicated(gsiggies$target_id),]
+
+
+## These are just the 'statistically significant' hits
+glrt_colors <- dplyr::filter(glrt_colors, qval < 0.05)
+
+write.csv(glrt_colors, "glrt_colors_xenann.csv", row.names = FALSE)
+
+
+##### This will iterate through and make a nice figure for each of the statistically significant color genes
+# create a directory first
+dir.create("colorgenespline_genelevel-figures_xenopusannotation")
+
+for (i in 1:nrow(glrt_colors)){
+  transcript <- glrt_colors[i,"target_id"]
+  gene <- glrt_colors[i,"full_gene_name"]
+  qval <- glrt_colors[i,"qval"]
+  tmp <- sog$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
+  tmp <- dplyr::full_join(sog$sample_to_covariates, tmp, by = 'sample')
+  tmp
+  
+  
+a <- ggplot(tmp, aes(x=week, y=log(tpm))) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +  geom_smooth(method = loess) + ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE) + theme_bw()
+ 
+
+  ggsave(paste0("colorgenespline_genelevel-figures_xenopusannotation/", gene, "-", transcript, ".png"), width = 6.81, height = 3.99)
+}
+
+# Print number of significant color genes
+print("Number of unique DE color genes across development:")
+length(glrt_colors$target_id)
+
+print("Number of unique DE genes across development:")
+length(gsiggies$target_id)
+
+
+# get gene names for downstream GO analyses and save them
+write.csv(glrt_colors, "imitator_genelevel_significant_color_gene_stats_xanann.csv", row.names = FALSE)
+write.csv(gsiggies, "imitator_genelevel_time_significant_genes_xenann.csv", row.names = FALSE)
+
+GO_siggiesg <- dplyr::filter(gsiggies, target_id != "NA")
+write.csv(GO_siggiesg, "imitator_significant_genelevel_genes_GO_xenann.csv", row.names = FALSE)
+
+
+```
+
+
+
+Gene level population analyses.
+
+```{r}
+# population
+# first prep the population matrix
+#pop_design <- model.matrix(~0 + samples$locality)
+#colnames(pop_design) <- levels(samples$locality)
+
+
+
+sogpop <- sleuth_prep(samples, num_cores = 6, target_mapping = xenpep2gene, aggregation_column = 'gene_name')
+
+sogpop <- sleuth_fit(sogpop, formula = ~ locality + lane, fit_name = "full")
+sogpop <- sleuth_fit(sogpop, formula = ~ lane, fit_name = "reduced")
+#so <- sleuth_fit(so, full_model = spline_design)
+models(sogpop)
+gpop_lrt <- sleuth_lrt(sogpop, "reduced", "full")
+# so_wt <- sleuth_wt(so, "reduced", "full")
+# Ok I don't know why that doesn't actually work....
+
+gpop_lrt_results <- sleuth_results(gpop_lrt, 'reduced:full', test_type = 'lrt')
+table(gpop_lrt_results[,"qval"] < 0.05) #9701 significant transcripts between the null and the others...
+
+# make gene names lower case for appropriate searching
+gpop_lrt_results$target_id <- tolower(gpop_lrt_results$target_id)
+write.csv(gpop_lrt_results, "allgenes4GO_xenann.csv", row.names = FALSE)
+
+gpop_sig_results <-  gpop_lrt_results[order(gpop_lrt_results$qval),]
+gpop_siggies <- gpop_sig_results[ which(gpop_sig_results$qval < 0.05),]
+
+gpop_lrt_colors <- gpop_lrt_results %>% filter(target_id %in% colors$gene_name) #| uni_gene_name %in% colors$gene_name)
+
+
+## Alphabetize
+gpop_lrt_colors <-  gpop_lrt_colors[order(gpop_lrt_colors$target_id),]
+
+gpop_lrt_colors <- gpop_lrt_colors[!duplicated(gpop_lrt_colors$target_id),]
+gpop_siggies <- gpop_siggies[!duplicated(gpop_siggies$target_id),]
+
+## These are just the 'statistically significant' hits
+gpop_lrt_colors <- dplyr::filter(gpop_lrt_colors, qval < 0.05)
+
+# save results to spreadsheets
+write.csv(gpop_lrt_colors, "gpop_lrt_colors_xenann.csv", row.names = FALSE)
+
+##### This will iterate through and make a nice figure for each of the statistically significant color genes
+dir.create("colorgenepopulation_genelevel-figures_xenann")
+for (i in 1:nrow(gpop_lrt_colors)){
+  transcript <- gpop_lrt_colors[i,"target_id"]
+  gene <- gpop_lrt_colors[i,"full_gene_name"]
+  qval <- gpop_lrt_colors[i,"qval"]
+  tmp <- sogpop$obs_norm %>% dplyr::filter(target_id == transcript)  ### These are normalized values I think!
+  tmp <- dplyr::full_join(sogpop$sample_to_covariates, tmp, by = 'sample')
+  tmp
+  
+  
+a <- ggplot(tmp, aes(x=week, y=log(tpm))) + geom_point(aes(size = 3, color = locality)) + scale_colour_manual(values = c("yellow2","orange1", "chartreuse4", "red1"), guide = guide_legend(title = "Population", override.aes = list(size=4))) +   ggtitle(paste0(gene, "\n(", transcript, "), q value = ", qval)) + guides(size=FALSE) + theme_bw()
+ 
+
+  ggsave(paste0("colorgenepopulation_genelevel-figures_xenann/", gene, "-", transcript, ".png"), width = 6.81, height = 3.99)
+}
+
+
+# Print number of significant color genes
+print("Number of unique DE genes across populations:")
+length(gpop_siggies$target_id)
+
+
+print("Number of unique DE color genes across populations:")
+length(gpop_lrt_colors$target_id)
+
+# write.csv(colorgenes_pop, "imitator_population_color_gene_stats.csv")
+write.csv(gpop_lrt_colors, "imitator_population_significant_genelevel_color_gene_stats_xenann.csv", row.names = FALSE)
+write.csv(gpop_siggies, "imitator_population_significant_genelevel_genes_xenann.csv", row.names = FALSE)
+
+gGO_pop_siggies <- dplyr::filter(gpop_siggies, target_id != "NA")
+write.csv(gGO_pop_siggies, "imitator_population_significant_genelevel_genes_GO_xenann.csv", row.names = FALSE)
+
+gsignificant_population_colorgenes <- unique(gpop_lrt_colors$gene_name)
+```
+
+Save the two sleuth objects for loading later:
+
+```{R}
+sleuth_save(sog, "sleuth_genes_time_xenann.so")
+sleuth_save(sogpop, "sleuth_genes_pop_xenann.so")
+
+# load these with sleuth_load(file)
+```
+
+Getting the overlap between the two:
+
+```{r}
+
+overlap <- glrt_colors %>% filter(target_id %in% gpop_lrt_colors$target_id)
+dim(overlap)
+
+no_overlap <- glrt_colors %>% filter(!target_id %in% gpop_lrt_colors$target_id)
+dim(no_overlap)
+
+
+```
+
+
+General information here:   ### this currently needs to be fixed.
+
+
+```{r}
+print("Number of differentially expressed transcripts between time points:")
+table(glrt_results[,"qval"] < 0.05)
+
+print("Number of differentially expressed candidate color genes between time points:")
+dim(glrt_colors)
+
+print("Unique color genes differentiall expressed between time points (full annotation only):")
+length(unique(glrt_colors$target_id)) 
+
+print("Number of differentially expressed transcripts between populations:")
+table(gpop_lrt_results[,"qval"] < 0.05)
+
+print("Number of differentially expressed candidate color genes between populations:")
+dim(gpop_lrt_colors)
+
+print("Number of differentially expressed transcripts both over time and between populations:")
+dim(overlap)
+
+print("The genes differentially expressed across both time and populations:")
+print(overlap$target_id)
+
+
+```
+
+Now I'll make a table of all the statistically significant color genes.
+
+```{r}
+# df of genes over time
+time_df <- glrt_colors
+time_df$Time <- "X"
+time_df <- time_df[,c(1,16)]
+
+# df of genes between color morphs
+morph_df <- gpop_lrt_colors
+morph_df$"Color morphs" <- "X"
+morph_df <- morph_df[,c(1,16)]
+
+# SNPS
+snps <- read.csv("imitator_colorgene_SNP_counts.csv")
+colnames(snps)<- c("target_id", "Number of SNPs")
+snps$target_id <- as.character(snps$target_id)
+
+#change to characters
+time_df$target_id <- as.character(time_df$target_id)
+morph_df$target_id <- as.character(morph_df$target_id)
+
+allgenes <- c(time_df$target_id, morph_df$target_id, snps$target_id)
+allgenes <- as.data.frame(unique(sort(allgenes))) # HERE LIES THE ISSUE
+colnames(allgenes)[1] <- "target_id"
+#allgenes$target_id <- as.character(allgenes$target_id)
+
+allgenes <- dplyr::left_join(allgenes, time_df, by = "target_id")
+allgenes <- dplyr::left_join(allgenes, morph_df, by = "target_id")
+allgenes <- dplyr::left_join(allgenes, snps, by = "target_id")
+colnames(allgenes)[1] <- "Gene"
+
+allgenes
+
+write.csv(allgenes, "significant_color_gene_table.csv", na="", row.names = FALSE)
+
+```
+
