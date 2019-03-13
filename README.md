@@ -8,11 +8,19 @@ Transcriptome assembly, read cleaning, and transcript expression quantification 
 
 We assembled a *de novo* transcriptome and annotated it. Subsequently we cleaned and trimmed individual reads and mapped each sample to the assembled transcriptome. After this, we conducted differential expression analyses to examine changes in gene expression over time and between color morphs. Additionally, we examined genomic variants by calling SNPs, and looked at fixed differences between color morphs. Finally, we conducted statistical overrepresentation analyses in Panther (no code for that here, but we have included the list of genes we loaded into Panther). Finally, we produced figures and tables.
 
+## Data availability
+
+Data are available from the European Nucleotide Archive under the accession PRJEB28312. I will link to the data once it passes QC and is publicly available.
+
 ### Script order
 
-1. 
+1. DevSeriesBashScript.sh
+2. DevSeriesXenopus_annotation.Rmd
+3. ANGSD_pipeline.sh
+4. DevSeriesPopGen.Rmd
+5. Figures_and_genetable.Rmd
 
 
 #### Supplementary documents 
 
-Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome(?), sample metadata, etc.
+Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome (if the file isn't too big?), sample metadata, etc.
