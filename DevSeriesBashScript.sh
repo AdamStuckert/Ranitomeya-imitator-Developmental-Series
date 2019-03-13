@@ -12,7 +12,8 @@ for f in reads/*R2.fastq.gz; do zcat $f; echo; done > all_reads_R2.fastq
 seqtk sample -s100 all_reads_R1.fastq 40000000 > subsamp.R1.fastq &
 seqtk sample -s100 all_reads_R2.fastq 40000000 > subsamp.R2.fastq
 
-
+# Run the Oyster River Protocol (MacManes 2018)--this is a modified script for our readset
+# Modified makefile is located in the "SupplementalDocuments" folder
 /home/summersk/programs/Oyster_River_Protocol/oyster35.mk main \
 MEM=750 \
 CPU=28 \
