@@ -10,9 +10,13 @@ We assembled a *de novo* transcriptome and annotated it. Subsequently we cleaned
 
 ### Script order
 
-1. 
+1. DevSeriesBashScript.sh
+2. DevSeriesXenopus_annotation.Rmd
+3. ANGSD_pipeline.sh
+4. DevSeriesPopGen.Rmd
+5. Figures_and_genetable.Rmd
 
 
 #### Supplementary documents 
 
-Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome(?), sample metadata, etc.
+Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome (if the file isn't too big?), sample metadata, etc.
