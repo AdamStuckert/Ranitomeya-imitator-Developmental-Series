@@ -66,98 +66,18 @@ printf " ################################################ \n \
 ######## Diamond annotation to Xenopus ######### \n \
 ################################################ \n"
 
-#### Annotation with diamond to amphibian (xenopus, nanorana peptides) + UniRef90 databases
-
-# cat all peptides together 
-cat Nanorana_parkeri.gene.v2.pep.fa uniref90_Sept2018.fasta Xenopus_tropicalis.JGI_4.2.pep.all.fa > all_peptides.fa
-
-# Make the diamond index  
-diamond makedb --in all_peptides.fa -d allpep &
-
-# Diamond mapping
-diamond blastx -d /home/summersk/peptide_databases/allpep.dmnd -q subsamp.imitator.merged.fasta -o subimi2allpep.m8 --threads 16
-
-# sort by top hit
-sort subimi2allpep.m8 -k 1,1 -k11,11rg | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
-
-# I will also annotate just to xenopus, in case that makes a difference for pulling out gene names
-diamond blastx -d /home/summersk/peptide_databases/xen.dmnd -q subsamp.imitator.merged.fasta -o subimi2xen.m8 --threads 16
-
-# sort by top hit
-sort subimi2xen.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimixen_tophit.txt
-
-
-sort subimi2allpep.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiallpep_tophit.txt
-
-
-# UniRef90 hits:
-grep "UniRef90_" subimiallpep_tophit.txt > tmp.txt
-awk '{print $2}' tmp.txt > allpep_unirefs
-
-
-# Just uniref mapping:
+#### Annotation with diamond to Xenopus peptide database
+# download
+cd ~/peptide_databases/
+curl -LO ftp://ftp.ensembl.org/pub/release-95/fasta/xenopus_tropicalis/pep/Xenopus_tropicalis.JGI_4.2.pep.all.fa.gz
+gunzip Xenopus_tropicalis.JGI_4.2.pep.all.fa.gz
 
 # Make the diamond index  
-diamond makedb --in uniref90.fa -d unirefs
+diamond makedb --in Xenopus_tropicalis.JGI_4.2.pep.all.fa -d Xen_ensembl95.dmnd
 
 # Diamond mapping
-diamond blastx -d /home/summersk/peptide_databases/unirefs.dmnd -q subsamp.imitator.merged.fasta -o subimi2uniref.m8 --threads 16
-
-# Data: Total time = 2101.9s; Reported 926134 pairwise alignments, 926134 HSP; 40689 queries aligned.
+cd ~/Developmental_series/
+diamond blastx -d /home/summersk/peptide_databases/Xenopus_tropicalis/Xen_ensembl95.dmnd -q Ranitomeya_imitator_transcriptome.fasta -o imi_Xen95.txt --threads 40
 
 # sort by top hit
-sort subimi2uniref.m8 -k 1,1 -k11,11g | sort -u -k 1,1 --merge > subimiuniref_tophit.txt
-# 40,689 queries aligned
-# 46.1% annotation rate
-
-# Use this to download the uniref90 hits via the website. Use IDs to get details, only taking the "reviewed" SwissProt hits!
-
-# Now, download all of this on to my computer using cyberduck like a pleb.
-	# This includes the kallisto quantifications as well as the annotation output file from diamond
-
-
-## Get uniprot KB IDs from Uniref90 IDs
-
-for i in $(cat allpep_unirefs)
-do
-grep $i /home/summersk/peptide_databases/uniref2uniprotkb.txt >> uniprotkbs.txt
-done 
-
-
-## NOTE: THIS WOULD BE WAY FASTER IN R
-
-??Add a header to the uniref2uniprotkb file?
-echo uniref_ids > tmp
-cat allpep_unirefs >> tmp
-mv tmp allpep_unirefs
-
-printf "uniref_ids \t uniprotKBs \n" tmp
-cat uniref2uniprotkb >> tmp
-
-
-R
-library(dplyr)
-library(data.table)
-ids <- fread("allpep_unirefsforR", header = TRUE)
-kbs <- fread("/home/summersk/peptide_databases/uniref2uniprotkbforR.txt", header = TRUE)
-
-
-head(ids)
-head(kbs)
-
-new <- dplyr::left_join(ids, kbs, by = "uniref_ids")
-
-write.table(new, "uniprotkblist.tsv", sep = "\t")
-
-q()
-
-
-
-awk 'BEGIN{FS="\t"}{printf("%s\t%s\n", $1, $9)}' idmapping_selected.tab > NEWANNOTATION.txt
-awk '{print $1}' NEWANNOTATION.txt > accessions.txt
-
-grep "UniRef90" imi_allann_tophit.txt | awk '{printf("%s\t%s\n", $1, $2)}' > uniref_transcripts_Mar2019.txt
-awk '{print $2}' uniref_transcripts_Mar2019.txt > uniref_IDS_Mar2019.txt
-
-
-# query accessions.txt at https://www.uniprot.org/mapping/ with UniProtKB AC/ID to Gene name
+sort imi_Xen95.txt -k 1,1 -k11,11g | sort -u -k 1,1 --merge > imi_Xen95_tophit.txt
