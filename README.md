@@ -24,4 +24,4 @@ Data are available from the European Nucleotide Archive under the accession PRJE
 
 #### Supplementary documents 
 
-Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome (if the file isn't too big?), sample metadata, etc.
+Documents not produced by these scripts are included in a separate supplemental documents folder. This includes our assembled transcriptome, sample metadata, etc.
