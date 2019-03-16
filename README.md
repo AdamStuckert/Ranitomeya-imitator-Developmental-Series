@@ -4,6 +4,7 @@ In this project, we attempt to examine genes that contribute to the production o
 
 Transcriptome assembly, read cleaning, and transcript expression quantification is all done in bash. Subsequent differential gene expression analyses are in the R markdown files.
 
+![Ranitomeya imitator morphs](https://github.com/AdamStuckert/Ranitomeya-imitator-Developmental-Series/blob/master/SupplementalDocuments/Imitator_morphs_lower_quality.png)
 
 ## General workflow
 
