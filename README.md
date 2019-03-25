@@ -12,7 +12,7 @@ We assembled a *de novo* transcriptome and annotated it. Subsequently we cleaned
 
 ## Data availability
 
-Data are available from the European Nucleotide Archive under the accession PRJEB28312. I will link to the data once it passes QC and is publicly available.
+Data are available from the European Nucleotide Archive under the accession PRJEB28312. [Raw reads are available here.](https://www.ebi.ac.uk/ena/data/view/PRJEB28312)
 
 ### Script order
 
